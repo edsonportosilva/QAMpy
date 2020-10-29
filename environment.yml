@@ -2,3 +2,8 @@ channels:
   - conda-forge
 dependencies:
   - appmode
+  - bitarray
+  - numpy
+  - scipy
+  - cython
+  - bokeh
