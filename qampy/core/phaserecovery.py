@@ -27,7 +27,7 @@ from qampy.core.dsp_cython import select_angles
 from qampy.core.filter import moving_average
 try:
     import arrayfire as af
-except ImportError:
+except (ImportError, RuntimeError):
     af = None
 
 NMAX = 4*1024**3

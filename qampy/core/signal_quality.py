@@ -26,7 +26,7 @@ from qampy.core.dsp_cython import soft_l_value_demapper_minmax
 
 try:
     import arrayfire as af
-except ImportError:
+except (ImportError, RuntimeError):
     af = None
 
 def _soft_l_value_demapper_af(rx_symbs, M, snr, bits_map):
