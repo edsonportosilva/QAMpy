@@ -1789,4 +1789,4 @@ class SignalWithPilots(SignalBase):
     def recreate_from_np_array(self, arr, **kwargs):
         nframes = arr.shape[-1]//self.frame_len
         assert nframes > 0, "numpy array needs to be at least frame_len long"
-        super().recreate_from_np_array(arr, nframes=nframes, **kwargs)
+        return super().recreate_from_np_array(arr, nframes=nframes, **kwargs)

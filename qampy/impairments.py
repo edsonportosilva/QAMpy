@@ -41,7 +41,7 @@ def apply_PMD(field, theta, t_dgd):
     out  : SignalObject
        new dual polarisation field with PMD
     """
-    return core.impairments.apply_PMD_to_field(field, theta, t_dgd, field.fs)
+    return field.recreate_from_np_array(core.impairments.apply_PMD_to_field(field, theta, t_dgd, field.fs))
 
 def apply_phase_noise(signal, df):
     """

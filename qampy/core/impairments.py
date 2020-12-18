@@ -92,10 +92,7 @@ def _applyPMD_dot(field, theta, t_dgd, omega):
     Sn = Sff*h2
     Sf2 = rotate_field(Sn, -theta)
     SS = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(Sf2, axes=1), axis=1), axes=1)
-    try:
-        return field.recreate_from_np_array(SS.astype(field.dtype))
-    except:
-        return SS.astype(field.dtype)
+    return SS.astype(field.dtype)
 
 def apply_PMD_to_field(field, theta, t_dgd, fs):
     """
