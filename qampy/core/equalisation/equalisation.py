@@ -24,105 +24,85 @@
 No decision based:
 -----------------
 Constant Modulus Algorithm (CMA) after _[1]
-Radius Directed Error (RDE) after _[2]
-Modfied Constant Modulus Algorithm (MCMA) after _[3]
-Modified Radius Directed Error (MRDA) after _[7]
-Constellation Matched Error Algorithm (CME) after _[5]
-Square Contour Algorithm (SCA)  after _[6]
+Radius Directed Error (RDE) after _[1]
+Modfied Constant Modulus Algorithm (MCMA) after _[2]
+Modified Radius Directed Error (MRDA) after _[3]
+Decision-directed LMS (DD) after _[1]
 
 Decision Directed
 -----------------
-Symbol Based Decision (SBD) after _[7]
-Modified Decision Directed Modulus Algorithm (MDDMA) after _[8]
+Symbol Based Decision (SBD) after _[3]
+Modified Decision Directed Modulus Algorithm (MDDMA) after _[4]
 
 Adaptive Step Size Algorithms
 -----------------------------
-based on the step size adoption in _[9]  it is possible to use an adaptive step for all equalisers using the adaptive_stepsize keyword parameter
+based on the step size adoption in _[5]  it is possible to use an adaptive step for all equalisers using the adaptive_stepsize keyword parameter
+
+Real Valued
+-----------
+There are also real-valued CMA and DD as well as a data-aided DD algorithm
+
+Data aided
+----------
+In addition there is a data aided SBD algorithm and real_valued DD algorithm
 
 References
 ----------
-...[3] Oh, K. N., & Chin, Y. O. (1995). Modified constant modulus algorithm: blind equalization and carrier phase recovery algorithm. Proceedings IEEE International Conference on Communications ICC ’95, 1, 498–502. http://doi.org/10.1109/ICC.1995.525219
-...[5] He, L., Amin, M. G., Reed, C., & Malkemes, R. C. (2004). A Hybrid Adaptive Blind Equalization Algorithm for QAM Signals in Wireless Communications, 52(7), 2058–2069.
-...[6] Sheikh, S. A., & Fan, P. (2008). New blind equalization techniques based on improved square contour algorithm ✩, 18, 680–693. http://doi.org/10.1016/j.dsp.2007.09.001
-...[7] Filho, M., Silva, M. T. M., & Miranda, M. D. (2008). A FAMILY OF ALGORITHMS FOR BLIND EQUALIZATION OF QAM SIGNALS. In 2011 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) (pp. 6–9).
+...[1] M. S. Faruk and S. J. Savory, ‘Digital Signal Processing for Coherent Transceivers Employing Multilevel Formats’, Journal of Lightwave Technology, vol. 35, no. 5, pp. 1125–1141, Mar. 2017, doi: 10.1109/JLT.2017.2662319.
+...[2] Oh, K. N., & Chin, Y. O. (1995). Modified constant modulus algorithm: blind equalization and carrier phase recovery algorithm. Proceedings IEEE International Conference on Communications ICC ’95, 1, 498–502. http://doi.org/10.1109/ICC.1995.525219
+...[3] Filho, M., Silva, M. T. M., & Miranda, M. D. (2008). A FAMILY OF ALGORITHMS FOR BLIND EQUALIZATION OF QAM SIGNALS. In 2011 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) (pp. 6–9).
 ...[8] Fernandes, C. A. R., Favier, G., & Mota, J. C. M. (2007). Decision directed adaptive blind equalization based on the constant modulus algorithm. Signal, Image and Video Processing, 1(4), 333–346. http://doi.org/10.1007/s11760-007-0027-2
-...[9] D. Ashmawy, K. Banovic, E. Abdel-Raheem, M. Youssif, H. Mansour, and M. Mohanna, “Joint MCMA and DD blind equalization algorithm with variable-step size,” Proc. 2009 IEEE Int. Conf. Electro/Information Technol. EIT 2009, no. 1, pp. 174–177, 2009.
+...[5] D. Ashmawy, K. Banovic, E. Abdel-Raheem, M. Youssif, H. Mansour, and M. Mohanna, “Joint MCMA and DD blind equalization algorithm with variable-step size,” Proc. 2009 IEEE Int. Conf. Electro/Information Technol. EIT 2009, no. 1, pp. 174–177, 2009.
 
 """
 
 from __future__ import division
-import warnings
 import numpy as np
 
 import qampy.helpers
 from qampy.theory import cal_symbols_qam, cal_scaling_factor_qam
 from qampy.core.segmentaxis import segment_axis
+from qampy.core.equalisation import pythran_equalisation
 
+DECISION_BASED = ["sbd", "mddma", "dd", "sbd_data", "dd_real", "dd_data_real"]
+NONDECISION_BASED = ["cma", "mcma", "rde", "mrde", "cma_real"]
+REAL_VALUED = ["cma_real", "dd_real", "dd_data_real"]
+DATA_AIDED = ["dd_data_real", "sbd_data"]
 
-#TODO: include selection for either numba or cython code
-try:
-    from qampy.core.equalisation.cython_errorfcts import ErrorFctMCMA, ErrorFctMRDE, ErrorFctSBD, ErrorFctMDDMA, ErrorFctDD,\
-        ErrorFctCMA, ErrorFctRDE, ErrorFctSCA, ErrorFctCME,ErrorFctSBDDataAided
-    from qampy.core.equalisation.cython_equalisation import train_eq, ErrorFct
-    from qampy.core.equalisation.cython_equalisation import apply_filter_to_signal as apply_filter_pyx
-except:
-    ##use python code if cython code is not available
-    warnings.warn("can not use cython training functions")
-    from qampy.core.equalisation.equaliser_numba import ErrorFctMCMA, ErrorFctMRDE, ErrorFctSBD, ErrorFctMDDMA, ErrorFctDD,\
-        ErrorFctCMA, ErrorFctRDE, ErrorFctSCA, ErrorFctCME, train_eq
+TRAINING_FCTS =  DECISION_BASED + NONDECISION_BASED
 
-TRAINING_FCTS = ["cma", "mcma",
-                 "rde", "mrde",
-                 "sbd", "mddma",
-                 "sca", "cme",
-                 "dd"]
-def _select_errorfct(method, M, symbols, dtype, **kwargs):
+def generate_symbols_for_eq(method, M, dtype):
     #TODO: investigate if it makes sense to include the calculations of constants inside the methods
+    if method in ["cma"]:
+        return np.atleast_2d(_cal_Rconstant(M) + 0j).astype(dtype)
     if method in ["mcma"]:
-        return ErrorFctMCMA(_cal_Rconstant_complex(M))
-    elif method in ["cma"]:
-        return ErrorFctCMA(_cal_Rconstant(M))
-    elif method in ["rde"]:
-        p, c = generate_partition_codes_radius(M)
-        return ErrorFctRDE(p, c)
-    elif method in ["mrde"]:
-        p, c = generate_partition_codes_complex(M)
-        return ErrorFctMRDE(p, c)
-    elif method in ["sca"]:
-        return ErrorFctSCA(_cal_Rsca(M))
-    elif method in ["cme"]:
-        if symbols is None:
-            syms = cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))
-            syms = syms.astype(dtype)
-        else:
-            syms = symbols
-        d = np.min(abs(np.diff(np.unique(syms.real)))) # should be fixed to consider different spacing between real and imag
-        R = _cal_Rconstant(M)
-        r2 = np.mean(abs(syms)**2)
-        r4 = np.mean(abs(syms)**4)
-        A = r4/r2
-        bb = np.max(abs(syms*abs(syms)**2-A))
-        try:
-            beta = kwargs['beta']
-        except:
-            r2 = np.mean(abs(syms)**2)
-            r4 = np.mean(abs(syms)**4)
-            A = r4/r2
-            beta = np.max(abs(syms*abs(syms)**2-A))/2
-        return ErrorFctCME(R, d, beta)
-    elif method in ['sbd']:
-        if symbols is None:
-            return ErrorFctSBD((cal_symbols_qam(M) / np.sqrt(cal_scaling_factor_qam(M))).astype(dtype))
-        else:
-            return ErrorFctSBD(symbols)
-    elif method in ['mddma']:
-        return ErrorFctMDDMA((cal_symbols_qam(M) / np.sqrt(cal_scaling_factor_qam(M))).astype(dtype))
-    elif method in ['dd']:
-        return ErrorFctDD((cal_symbols_qam(M) / np.sqrt(cal_scaling_factor_qam(M))).astype(dtype))
-    else:
-        raise ValueError("%s is unknown method"%method)
+        return np.atleast_2d(_cal_Rconstant_complex(M)).astype(dtype)
+    if method in ["rde"]:
+        p = generate_partition_codes_radius(M)
+        return np.atleast_2d(p+0j).astype(dtype)
+    if method in ["mrde"]:
+        p = generate_partition_codes_complex(M)
+        return  np.atleast_2d(p).astype(dtype)
+    if method in ["sbd"]:
+        symbols = np.atleast_2d(cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))).astype(dtype)
+        return symbols
+    if method in ["mddma"]:
+        symbols = np.atleast_2d(cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))).astype(dtype)
+        return  symbols
+    if method in ["dd"]:
+        symbols = np.atleast_2d(cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))).astype(dtype)
+        return symbols
+    if method in ["cma_real"]:
+        return np.repeat([np.atleast_1d(_cal_Rconstant_complex(M).real.astype(dtype))], 2, axis=0)
+    if method in ["dd_real"]:
+        symbols = cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))
+        symbols_out = np.vstack([symbols.real, symbols.imag]).astype(dtype)
+        return symbols_out
+    if method in ["dd_data_real", "sbd_data"]:
+        raise ValueError("%s is a data-aided method and needs the symbols to be passed"%method)
+    raise ValueError("%s is unknown method"%method)
 
-def apply_filter(E, os, wxy, method="pyx"):
+def apply_filter(E, os, wxy, method="pyt", modes=None):
     """
     Apply the equaliser filter taps to the input signal.
 
@@ -139,7 +119,10 @@ def apply_filter(E, os, wxy, method="pyx"):
         filter taps for the x and y polarisation
 
     method : string
-        use python ("py") based or cython ("pyx") based function
+        use python ("py") based or pythran ("pyt") based function
+    
+    modes : array_like, optional
+        mode numbers over which to apply the filters
 
     Returns
     -------
@@ -147,14 +130,31 @@ def apply_filter(E, os, wxy, method="pyx"):
     Eest   : array_like
         equalised signal
     """
+    E = np.copy(E) # pythran requires non-reshaped arrays, copy to make sure they are
+    wxy = np.copy(wxy)
+    if modes is None:
+        modes = np.arange(wxy.shape[0])
+    else:
+        modes = np.copy(np.atleast_1d(modes))
+    nmodes = modes.shape[0]
     if method == "py":
         return apply_filter_py(E, os, wxy)
-    elif method == "pyx":
-        return apply_filter_pyx(E, os, wxy)
+    elif method == "pyt":
+        if np.iscomplexobj(E) and np.iscomplexobj(wxy):
+            return pythran_equalisation.apply_filter_to_signal(E, os, wxy, modes)
+        elif np.iscomplexobj(E):
+            E  = _convert_sig_to_real(E)
+        Etmp = pythran_equalisation.apply_filter_to_signal(E, os, wxy, modes)
+        if E.itemsize == 8:
+            return _convert_sig_to_cmplx(Etmp, nmodes, np.complex128(1j))
+        elif E.itemsize == 4:
+            return _convert_sig_to_cmplx(Etmp, nmodes, np.complex64(1j))
+        else:
+            raise ValueError("The field has an unknown data type")
     else:
-        raise NotImplementedError("Only py and pyx methods are implemented")
+        raise NotImplementedError("Only py and pythran methods are implemented")
 
-def apply_filter_py(E, os, wxy):
+def apply_filter_py(E, os, wxy, modes=None):
     """
     Apply the equaliser filter taps to the input signal.
 
@@ -169,6 +169,9 @@ def apply_filter_py(E, os, wxy):
 
     wxy    : tuple(array_like, array_like,optional)
         filter taps for the x and y polarisation
+    
+    modes : array_like, optional
+        mode numbers over which to apply the filters
 
     Returns
     -------
@@ -178,27 +181,33 @@ def apply_filter_py(E, os, wxy):
     """
     # equalise data points. Reuse samples used for channel estimation
     # this seems significantly faster than the previous method using a segment axis
+    # TODO something fails still in this function
     E = np.atleast_2d(E)
-    pols = E.shape[0]
-    Ntaps = wxy[0].shape[1]
-    X1 = segment_axis(E[0], Ntaps, Ntaps-os)
-    X = X1
+    Ntaps = wxy.shape[-1]
+    nmodes_max = wxy.shape[0]
+    if modes is None:
+        modes = np.arange(nmodes_max)
+        nmodes = nmodes_max
+    else:
+        modes = np.atleast_1d(modes)
+        assert np.max(modes) < nmodes_max, "largest mode number is larger than shape of signal"
+        nmodes = modes.sizeX = X1
+    X = segment_axis(E[modes[0]], Ntaps, Ntaps-os)
     ww = wxy[0].flatten()
-
     # Case for a butterfly-configured EQ
-    if pols > 1:
-        for pol in range(1,pols):
-            X_P = segment_axis(E[pol], Ntaps,Ntaps-os)
+    if nmodes_max > 1:
+        for pol in range(1, nmodes):
+            X_P = segment_axis(E[modes[pol]], Ntaps,Ntaps-os)
             X = np.hstack([X,X_P])
-            ww = np.vstack([ww,wxy[pol].flatten()])
+            ww = np.vstack([ww,wxy[modes[pol]].flatten()])
 
         # Compute the output
         Eest = np.dot(X,ww.transpose())
 
         # Extract the error (per butterfly entry)
         Eest_tmp = Eest[:,0]
-        for pol in range(1,pols):
-            Eest_tmp = np.vstack([Eest_tmp,Eest[:,pol]])
+        for pol in range(1, nmodes):
+            Eest_tmp = np.vstack([Eest_tmp,Eest[:,modes[pol]]])
         Eest = Eest_tmp
 
     # Single mode EQ
@@ -207,6 +216,15 @@ def apply_filter_py(E, os, wxy):
         Eest = np.atleast_2d(Eest)
 
     return Eest
+
+def _convert_sig_to_real(E):
+    Etmp = np.zeros((2*E.shape[0], E.shape[1]), dtype=E.real.dtype)
+    Etmp[:E.shape[0]] = E.real
+    Etmp[E.shape[0]:] = E.imag
+    return np.ascontiguousarray(Etmp)
+
+def _convert_sig_to_cmplx(E, modes, Im=np.complex128(1j)):
+    return E[:modes//2,:] + Im * E[modes//2:,:]
 
 def _cal_Rdash(syms):
      return (abs(syms.real + syms.imag) + abs(syms.real - syms.imag)) * (np.sign(syms.real + syms.imag) + np.sign(syms.real-syms.imag) + 1.j*(np.sign(syms.real+syms.imag) - np.sign(syms.real-syms.imag)))*syms.conj()
@@ -229,15 +247,6 @@ def _cal_Rconstant_complex(M):
     syms /= np.sqrt(scale)
     return np.mean(syms.real**4)/np.mean(syms.real**2) + 1.j * np.mean(syms.imag**4)/np.mean(syms.imag**2)
 
-def _init_taps(Ntaps, pols):
-    wx = np.zeros((pols, Ntaps), dtype=np.complex128)
-    # we could use gaussian initialisation, but no big advantage
-    #itaps = np.arange(0, Ntaps)-Ntaps//2
-    #width = Ntaps//8
-    #wx[0] = np.exp(-itaps**2/2/width**2)
-    #wx[0] = wx[0]/np.sqrt(np.sum(abs(wx[0])**2))
-    wx[0, Ntaps // 2] = 1
-    return wx
 
 def orthogonalizetaps(wx):
     """
@@ -291,7 +300,7 @@ def generate_partition_codes_complex(M):
     part_r = syms_r[:-1] + np.diff(syms_r)/2
     part_i = syms_i[:-1] + np.diff(syms_i)/2
     parts = part_r + 1.j*part_i
-    return parts, codes
+    return np.hstack([parts, codes])
 
 def generate_partition_codes_radius(M):
     """
@@ -314,43 +323,48 @@ def generate_partition_codes_radius(M):
     syms /= np.sqrt(scale)
     codes = np.unique(abs(syms)**4/abs(syms)**2)
     parts = codes[:-1] + np.diff(codes)/2
-    return parts, codes
+    return np.hstack([parts,codes])
 
-def _lms_init(E, os, wxy, Ntaps, TrSyms, Niter):
+def _cal_training_symbol_len(os, ntaps, L):
+    return int(L//os//ntaps-1)*int(ntaps)
+
+def _init_taps(Ntaps, nmodes, nmodes2, dtype):
+    wxy = np.zeros((nmodes, nmodes2, Ntaps), dtype=dtype)
+    for i in range(nmodes):
+        wxy[i, i, Ntaps // 2] = 1
+    # we could use gaussian initialisation, but no big advantage
+    #itaps = np.arange(0, Ntaps)-Ntaps//2
+    #width = Ntaps//8
+    #wx[0] = np.exp(-itaps**2/2/width**2)
+    #wx[0] = wx[0]/np.sqrt(np.sum(abs(wx[0])**2))
+    return wxy
+
+def _lms_init(E, os, wxy, Ntaps, TrSyms, mu):
     E = np.atleast_2d(E)
-    pols = E.shape[0]
     L = E.shape[1]
     # scale signal
     E = qampy.helpers.normalise_and_center(E)
     if wxy is None:
         # Allocate matrix and set first taps
-        wxy = np.zeros((pols,pols,Ntaps), dtype=np.complex128)
+        wxy = np.zeros((pols,pols,Ntaps), dtype=E.dtype)
         wxy[0] = _init_taps(Ntaps, pols)
-
         # Add orthogonal taps to all other modes
         if pols > 1:
             for pol in range(1,pols):
                 wxy[pol] = np.roll(wxy[0],pol,axis=0)
     else:
-        wxy = np.asarray(wxy)
-        Ntaps = wxy.shape[-1]
-        #else:
-            #try:
-                #wxy = wxy.flatten()
-                #Ntaps = len(wxy)
-                #wxy = np.asarray([wxy.copy(),])
-            #except:
-                #Ntaps = len(wxy[0])
-            #Ntaps = wxy.shape[-1]
+        wxy = np.asarray(wxy, dtype=E.dtype)
+        Ntaps = wxy[0].shape[1]
     if TrSyms is None:
         TrSyms = int(L//os//Ntaps-1)*int(Ntaps)
-    err = np.zeros((pols, Niter * TrSyms ), dtype=np.complex128)
+    if E.dtype.type == np.complex64:
+        mu = np.float32(mu)
     # the copy below is important because otherwise the array will not be contiguous, which will cause issues in
     # the C functions
     Eout = E[:, :(TrSyms-1)*os+Ntaps].copy()
-    return Eout, wxy, TrSyms, Ntaps, err, pols
+    return Eout, wxy, TrSyms, Ntaps, mu, pols
 
-def dual_mode_equalisation(E, os, mu, M, Ntaps, TrSyms=(None,None), Niter=(1,1), methods=("mcma", "sbd"), adaptive_stepsize=(False, False), symbols=None,  avoid_cma_sing=(False, False), selected_modes = None, apply=True, **kwargs):
+def dual_mode_equalisation(E, os, mu, M, wxy=None, Ntaps=None, TrSyms=(None,None), Niter=(1,1), methods=("mcma", "sbd"), adaptive_stepsize=(False, False), symbols=None,  modes=None, apply=True, **kwargs):
     """
     Blind equalisation of PMD and residual dispersion, with a dual mode approach. Typically this is done using a CMA type initial equaliser for pre-convergence and a decision directed equaliser as a second to improve MSE. 
 
@@ -385,7 +399,11 @@ def dual_mode_equalisation(E, os, mu, M, Ntaps, TrSyms=(None,None), Niter=(1,1),
         whether to adapt the step size upon training for each of the equaliser modes
 
     symbols : array_like, optional
-        tuple of symbol arrays. If only a single array is given they are used for both dimensions
+        array of symbol arrays. If only a single array is given they are used for both dimensions (default=None, use the 
+        symbols generated for the QAM format)
+    
+    modes : array_like, optional
+        array or list  of modes to  equalise over (default=None  equalise over all modes of the input signal)
 
     apply: Bool, optional
         whether to apply the filter taps and return the equalised signal
@@ -403,17 +421,18 @@ def dual_mode_equalisation(E, os, mu, M, Ntaps, TrSyms=(None,None), Niter=(1,1),
 
     if apply is False do not return E
     """
-    if len(symbols) == 1 or symbols.ndim == 1:
-        symbols = [symbols, symbols]
-    wxy, err1 = equalise_signal(E, os, mu[0], M, Ntaps=Ntaps, TrSyms=TrSyms[0], Niter=Niter[0], method=methods[0], adaptive_stepsize=adaptive_stepsize[0], symbols=symbols[0], avoid_cma_sing=avoid_cma_sing[0], selected_modes = None,**kwargs)
-    wxy2, err2 = equalise_signal(E, os, mu[1], M, wxy=wxy, TrSyms=TrSyms[1], Niter=Niter[1], method=methods[1], adaptive_stepsize=adaptive_stepsize[1],  symbols=symbols[0], avoid_cma_sing=avoid_cma_sing[1],selected_modes = None, **kwargs)
+    symbols = np.atleast_1d(symbols)
+    if symbols.ndim < 3:
+        symbols = np.tile(symbols, (2,1,1))
+    wxy, err1 = equalise_signal(E, os, mu[0], M, wxy=wxy, Ntaps=Ntaps, TrSyms=TrSyms[0], Niter=Niter[0], method=methods[0], adaptive_stepsize=adaptive_stepsize[0], symbols=symbols[0],  modes=modes,**kwargs)
+    wxy2, err2 = equalise_signal(E, os, mu[1], M, wxy=wxy, TrSyms=TrSyms[1], Niter=Niter[1], method=methods[1], adaptive_stepsize=adaptive_stepsize[1],  symbols=symbols[1],  modes=modes, **kwargs)
     if apply:
-        Eest = apply_filter(E, os, wxy2)
+        Eest = apply_filter(E, os, wxy2, modes=modes)
         return Eest, wxy2, (err1, err2)
     else:
         return wxy2, (err1, err2)
 
-def equalise_signal(E, os, mu, M, wxy=None, Ntaps=None, TrSyms=None, Niter=1, method="mcma", adaptive_stepsize=False,  symbols=None, avoid_cma_sing=False, apply=False, selected_modes = None, **kwargs):
+def equalise_signal(E, os, mu, M, wxy=None, Ntaps=None, TrSyms=None, Niter=1, method="mcma", adaptive_stepsize=False,  symbols=None,  modes=None, apply=False,  **kwargs):
     """
     Blind equalisation of PMD and residual dispersion, using a chosen equalisation method. The method can be any of the keys in the TRAINING_FCTS dictionary. 
     
@@ -444,14 +463,18 @@ def equalise_signal(E, os, mu, M, wxy=None, Ntaps=None, TrSyms=None, Niter=1, me
         number of iterations. Default is one single iteration
 
     method  : string, optional
-        equaliser method has to be one of cma, rde, mrde, mcma, sbd, mddma, sca, dd_adaptive, sbd_adaptive, mcma_adaptive
+        equaliser method has to be one of cma, mcma, rde, mrde, sbd, sbd_data, mddma, dd
 
     adaptive_stepsize : bool, optional
         whether to use an adaptive stepsize or a fixed
-    symbols : array_like
-        array of coded symbols to decide on for dd-based equalisation functions
-    avoid_cma_sing : bool
-        avoid the CMA polarization demux singularity by orthogonallizing taps after first pol convergence
+        
+    symbols : array_like, optional
+        array of coded symbols to decide on for dd-based equalisation functions (default=None, generate symbols for this
+        QAM format)
+        
+    modes: array_like, optional
+        array or list  of modes to  equalise over (default=None  equalise over all modes of the input signal)
+
     apply: Bool, optional
         whether to apply the filter taps and return the equalised signal
 
@@ -469,32 +492,73 @@ def equalise_signal(E, os, mu, M, wxy=None, Ntaps=None, TrSyms=None, Niter=1, me
 
     """
     method = method.lower()
-    eqfct = _select_errorfct(method, M, symbols, E.dtype, **kwargs)
-    # scale signal
-    Et, wxy, TrSyms, Ntaps, err, pols = _lms_init(E, os, wxy, Ntaps, TrSyms, Niter)
-    wxy = wxy.astype(E.dtype)
-
-    if selected_modes is None:
-        pols = np.arange(E.shape[0])
+    dtype_c = E.dtype
+    if method in REAL_VALUED:
+        E = _convert_sig_to_real(E)
     else:
-        pols = selected_modes
-
-    for l in pols:
-        if method == "data":
-            eqfct.mode = l
-        for i in range(Niter):
-            if method == "data":
-                eqfct.i = 0
-            err[l, i * TrSyms:(i + 1) * TrSyms], wxy[l], mu = train_eq(E, TrSyms, os, mu, wxy[l], eqfct,
-                                                                       adaptive=adaptive_stepsize)
-        if (l < 1) and avoid_cma_sing:
-            wxy[l + 1] = orthogonalizetaps(wxy[l])
+        E = np.copy(E) #  copy to make pythran happy
+    mu = E.real.dtype.type(mu)
+    nmodes = E.shape[0]
+    if modes is None:
+        modes = np.arange(nmodes)
+    else:
+        if method in REAL_VALUED:
+            modes = np.atleast_1d(modes)
+            modes = np.hstack([modes, modes+nmodes//2])
+        else:
+            modes = np.atleast_1d(modes)
+        assert np.max(modes) < nmodes, "largest mode number is larger than shape of signal"
+    if wxy is None:
+        wxy = _init_taps(Ntaps, nmodes, nmodes, E.dtype)
+    else:
+        wxy = np.ascontiguousarray(wxy, dtype=E.dtype)
+        Ntaps = wxy.shape[-1]
+        assert wxy.ndim == 3, "wxy needs to be three dimensional"
+        assert wxy.shape[:2] == (nmodes, nmodes), "The first 2 dimensions of wxy need to be the same shape as E"
+    if TrSyms is None:
+        TrSyms = _cal_training_symbol_len(os, Ntaps, E.shape[-1])
+    symbols = _reshape_symbols(symbols, method, M, E.dtype, nmodes)
+    if method in REAL_VALUED:
+        err, wxy, mu = pythran_equalisation.train_equaliser_realvalued(E, TrSyms, Niter, os, mu, wxy, modes, adaptive_stepsize, symbols.copy(), method[:-5]) # copies are needed because pythran has problems with reshaped arrays
+    else:
+        err, wxy, mu = pythran_equalisation.train_equaliser(E, TrSyms, Niter, os, mu, wxy, modes, adaptive_stepsize, symbols.copy(), method) # copies are needed because pythran has problems with reshaped arrays
     if apply:
         # TODO: The below is suboptimal because we should really only apply to the selected modes for efficiency
-        Eest = apply_filter(E, os, wxy)
-        return np.squeeze(Eest[selected_modes]), np.squeeze(wxy[selected_modes]), err
+        Eest = apply_filter(E, os, wxy, modes=modes)
+        if method in REAL_VALUED:
+            return Eest, wxy, err
+        else:
+            return Eest, wxy, err
     else:
         return wxy, err
+    
+def _reshape_symbols(symbols, method, M, dtype, nmodes):
+    if symbols is None or method in NONDECISION_BASED: # This code currently prevents passing "symbol arrays for RDE or CMA algorithms
+        symbols = generate_symbols_for_eq(method, M, dtype)
+    if method not in REAL_VALUED:
+        if symbols.ndim == 1 or symbols.shape[0] == 1:
+            symbols = np.tile(symbols, (nmodes, 1))
+        elif symbols.shape[0] != nmodes:
+            raise ValueError("Symbols array is shape {} but signal has {} modes, symbols must be 1d or of shape (1, N) or ({}, N)".format(symbols.shape, nmodes, nmodes))
+        symbols = symbols.astype(dtype)
+        symbols = np.atleast_2d(symbols)
+    else:
+        if np.iscomplexobj(symbols):
+            if symbols.ndim == 1 or symbols.shape[0] == 1:
+                symbols = np.repeat([symbols.real, symbols.imag], nmodes//2, axis=0).squeeze()
+                symbols = symbols.reshape(nmodes, -1)
+            elif symbols.shape[0] == nmodes//2:
+                symbols = np.vstack([symbols.real, symbols.imag])
+            else:
+                raise ValueError("Symbols array is  complex and has {} modes, but needs to either have one mode or the same modes as the signal ({})".format(symbols.shape[0], nmodes//2))
+        else:
+            if symbols.shape[0] == 2 and nmodes > 2:
+                symbols = np.repeat([symbols[0], symbols[1]], nmodes//2, axis=0).squeeze()
+                symbols = symbols.reshape(nmodes, -1)
+            elif symbols.shape[0] != nmodes:
+                raise ValueError("Symbols array is shape {} but signal has {} modes, symbols must be 1d or of shape (1, N) or ({}, N)".format(symbols.shape, nmodes, nmodes))
+        symbols = symbols.astype(dtype)
+    return symbols
 
 def CDcomp(E, fs, N, L, D, wl):
     """

@@ -19,19 +19,7 @@
 from __future__ import division, print_function
 import numpy as np
 from qampy.core import utils
-
-try:
-    pass
-    from .dsp_cython import lfsr_ext, prbs_ext
-except:
-    from .utils import lfsr_ext
-    print("can not import cython build module")
-
-try:
-    from .dsp_cython import lfsr_int, prbs_int
-except:
-    print("can not import cython build module")
-    from .utils import lfsr_int
+from qampy.core.pythran_dsp import prbs_int, prbs_ext
 
 def make_prbs_extXOR(order, nbits, seed=None):
     """
@@ -53,8 +41,8 @@ def make_prbs_extXOR(order, nbits, seed=None):
     prbs : array_like
         Array of nbits, dtype=bool, len=nbits
     """
-    assert order in [7, 15, 23, 31], """Only orders 7, 15, 23, 31 are
-    implemented"""
+    assert order in [7, 15, 23, 31], """Only orders 7, 15, 23, 31 are implemented"""
+    nbits = int(nbits) # need to make sure it is integer for pythran
     tapdict = {7: [7, 6], 15: [15, 14], 23: [23, 18], 31: [31, 28]}
     if seed is None:
         seed = utils.bool2bin(np.ones(order))
@@ -63,7 +51,7 @@ def make_prbs_extXOR(order, nbits, seed=None):
             seed = utils.bool2bin(seed)
         except TypeError:
             seed = seed
-    out = prbs_ext(seed, tapdict[order], order, nbits)
+    out = prbs_ext(seed, np.array(tapdict[order]), order, nbits)
     return out.astype(bool)
 
 

@@ -17,8 +17,10 @@
 # Copyright 2018 Jochen Schröder, Mikael Mazur
 import numpy as np
 import warnings
-from ..helpers import normalise_and_center, rescale_signal
-from ..filtering import filter_signal_analog
+from qampy.helpers import normalise_and_center, rescale_signal
+from qampy.core.filter import filter_signal
+from scipy import interpolate, fft
+from qampy.core.digital_pre_compensation import clipper
 
 def H_PMD(theta, t_dgd, omega):
     """
@@ -76,9 +78,9 @@ def rotate_field(field, theta):
     return np.dot(h, field)
 
 def _applyPMD_einsum(field, H, h3):
-    Sf = np.fft.fftshift(np.fft.fft(np.fft.ifftshift(field, axes=1),axis=1), axes=1)
+    Sf = fft.fftshift(fft.fft(fft.ifftshift(field, axes=1),axis=1), axes=1)
     SSf = np.einsum('ijk,ik -> ik',H , Sf)
-    SS = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(SSf, axes=1),axis=1), axes=1)
+    SS = fft.fftshift(fft.ifft(fft.ifftshift(SSf, axes=1),axis=1), axes=1)
     SS = np.dot(h3, SS)
     try:
         return field.recreate_from_np_array(SS.astype(field.dtype))
@@ -86,13 +88,16 @@ def _applyPMD_einsum(field, H, h3):
         return SS.astype(field.dtype)
 
 def _applyPMD_dot(field, theta, t_dgd, omega):
-    Sf = np.fft.fftshift(np.fft.fft(np.fft.ifftshift(field, axes=1),axis=1), axes=1)
+    Sf = fft.fftshift(fft.fft(fft.ifftshift(field, axes=1),axis=1), axes=1)
     Sff = rotate_field(Sf, theta)
     h2 = np.array([np.exp(-1.j*omega*t_dgd/2),  np.exp(1.j*omega*t_dgd/2)])
     Sn = Sff*h2
     Sf2 = rotate_field(Sn, -theta)
-    SS = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(Sf2, axes=1), axis=1), axes=1)
-    return SS.astype(field.dtype)
+    SS = fft.fftshift(fft.ifft(fft.ifftshift(Sf2, axes=1), axis=1), axes=1)
+    try:
+        return field.recreate_from_np_array(SS.astype(field.dtype))
+    except:
+        return SS.astype(field.dtype)
 
 def apply_PMD_to_field(field, theta, t_dgd, fs):
     """
@@ -299,7 +304,7 @@ def simulate_transmission(sig, fb, fs, snr=None, freq_off=None, lwdth=None, dgd=
     signal : array_like
         signal with transmission impairments applied
     """
-    
+
     if roll_frame_sync:
         if not (sig.nframes > 1):
             warnings.warn("Only single frame present, discontinuity introduced")
@@ -311,7 +316,7 @@ def simulate_transmission(sig, fb, fs, snr=None, freq_off=None, lwdth=None, dgd=
     if snr is not None:
         sig = change_snr(sig, snr, fb, fs)
     if modal_delay is not None:
-        sig = add_modal_delay(sig, delay)
+        sig = add_modal_delay(sig, modal_delay)
     if dgd is not None:
         sig = apply_PMD_to_field(sig, theta, dgd, fs)
     return sig
@@ -342,7 +347,7 @@ def quantize_signal(sig, nbits=6, rescale=True, re_normalize=True):
 
     levels = np.linspace(-1,1,2**(nbits))
 
-    sig_out = np.zeros(sig.shape,dtype="complex")
+    sig_out = np.zeros(sig.shape, dtype=sig.dtype)
     for pol in range(npols):
         sig_quant_re = levels[np.digitize(sig[pol].real,levels[:-1],right=False)]
         sig_quant_im = levels[np.digitize(sig[pol].imag,levels[:-1],right=False)]
@@ -376,11 +381,9 @@ def quantize_signal_New(sig_in, nbits=6, rescale_in=True, rescale_out=True):
     npols = sig_in.shape[0]
 
     # Rescale to
-    sig = np.zeros((npols,sig_in.shape[1]), dtype=sig_in.dtype)
+    sig = np.zeros((npols, sig_in.shape[1]), dtype=sig_in.dtype)
     if rescale_in:
-        for pol in range(npols):
-            # notice: different pol may have different scale factor which cause power different between x and y -pol.
-            sig[pol] = rescale_signal(sig_in[pol], swing=1)
+        sig = rescale_signal(sig_in, swing=1)
 
     # Clipping exist if signal range is larger than (-1,1)
     swing = 2
@@ -388,7 +391,7 @@ def quantize_signal_New(sig_in, nbits=6, rescale_in=True, rescale_out=True):
     levels_out = np.linspace(-1+delta/2, 1-delta/2, 2**nbits)
     levels_dec = levels_out + delta/2
 
-    sig_out = np.zeros(sig.shape, dtype="complex")
+    sig_out = np.zeros(sig.shape, dtype=sig_in.dtype)
     for pol in range(npols):
         sig_quant_re = levels_out[np.digitize(sig[pol].real, levels_dec[:-1], right=False)]
         sig_quant_im = levels_out[np.digitize(sig[pol].imag, levels_dec[:-1], right=False)]
@@ -403,39 +406,30 @@ def quantize_signal_New(sig_in, nbits=6, rescale_in=True, rescale_out=True):
 
     return sig_in.recreate_from_np_array(sig_out)
 
-def modulator_response(rfsig_i,rfsig_q,dcsig_i=3.5,dcsig_q=3.5,dcsig_p=3.5/2,vpi_i=3.5,vpi_q=3.5,vpi_p=3.5,gi=1,gq=1,gp=1,ai=0,aq=0):
+def modulator_response(rfsig, dcbias=1, gfactr=1, cfactr=0, dcbias_out=0.5, gfactr_out=1):
     """
     Function so simulate IQ modulator response.
 
     Parameters
     ----------
-    rfsig_i:  array_like
-            RF input signal to I channel
-    rfsig_q:  array_like
-            RF input signal to Q channel
-    dcsig_i:  float
-            DC bias signal to I channel
-    dcsig_q:  float
-            DC bias signal to Q channel
-    dcsig_p:  float
-            DC bias signal to outer MZM used to control the phase difference of I anc Q signal
-            Normally is set to vpi_p/2, which correspond to 90 degree
-    vpi_i: float
-            Vpi of the MZM (zero-power point) in I channel
-    vpi_q: float
-            Vpi of the MZM (zero-power point) in Q channel
-    vpi_p: float
-            Vpi of the outer MZM (zero-power point) used to control phase difference.
-    gi: float
-            Account for split imbalance and path dependent losses of I MZM. i.e. gi=1 for ideal MZM with infinite extinction ratio
-    gq: float
-            Account for split imbalance and path dependent losses of Q MZM
-    gp: float
-            Account for split imbalance and path dependent losses of Q MZM
-    ai: float
-            Chirp factors of I channel MZM, caused by the asymmetry in the electrode design of the MZM. i.e. ai = 0 for ideal MZM
-    aq: float
-            Chirp factors of Q channel MZM, caused by the asymmetry in the electrode design of the MZM
+    rfsig:  array_like
+        complex version of the I (real part) and Q (imaginary part) of the signal
+    dcsig:  complex or float, optional
+            DC bias for I (real) and Q (imaginary) channel. If dcsig is real use the same DC bias for I and Q
+    vpi:   complex or float, optional
+            Vpi of the MZM (zero-power point) in I (real)  and Q (imaginary) channel. If vpi is real use the  same Vpi
+            for both.
+    gfactr: complex or float, optional
+            Split imbalance and path dependent loss of I (real) and Q (imaginary) MZM. 
+            An ideal MZM with infinite extinction ratio has gfactor=1. If gfactr is real use the same value for both I
+            and Q.
+    cfactr:  complex or float, optional
+           Chirp factors of I (real) and (Q) channel MZMs, caused by the asymmetry in the electrode design of the MZM. 
+           cfactr = 0 for ideal MZM.
+    dcbias_out : float, optional
+            DCBias of the outer MZM
+    gfactr_out : float, optional
+            gain factor of the outer MZM
 
     Returns
     -------
@@ -444,13 +438,20 @@ def modulator_response(rfsig_i,rfsig_q,dcsig_i=3.5,dcsig_q=3.5,dcsig_p=3.5/2,vpi
 
     """
 
-    volt_i = rfsig_i + dcsig_i
-    volt_q = rfsig_q + dcsig_q
-    volt_p = dcsig_p
+    if not np.iscomplex(dcbias):
+        dcbias = dcbias + 1j*dcbias
+    if not np.iscomplex(gfactr):
+        gfactr = gfactr + 1j*gfactr
+    if not np.iscomplex(cfactr):
+        cfactr = cfactr + 1j*cfactr
+    volt = rfsig.real + dcbias.real + 1j * (rfsig.imag + dcbias.imag)
     # Use the minus sign (-) to modulate lower level RF signal to corresponding Low-level optical field, if V_bias = Vpi
-    e_i = -(np.exp(1j*np.pi*volt_i*(1+ai)/(2*vpi_i)) + gi*np.exp(-1j*np.pi*volt_i*(1-ai)/(2*vpi_i)))/(1+gi)
-    e_q = -(np.exp(1j*np.pi*volt_q*(1+aq)/(2*vpi_q)) + gq*np.exp(-1j*np.pi*volt_q*(1-aq)/(2*vpi_q)))/(1+gq)
-    e_out = np.exp(1j*np.pi/4)*(e_i*np.exp(-1j*np.pi*volt_p/(2*vpi_p)) + gp*e_q*np.exp(1j*np.pi*volt_p/(2*vpi_p)))/(1+gp)
+    e_i = -(np.exp(1j * np.pi * volt.real * (1 + cfactr.real) / 2) +
+            gfactr.real * np.exp(-1j * np.pi * volt.real * (1 - cfactr.real) / 2)) / (1 + gfactr.real)
+    e_q = -(np.exp(1j * np.pi * volt.imag * (1 + cfactr.imag) / 2) +
+            gfactr.imag * np.exp(-1j * np.pi * volt.imag * (1 - cfactr.imag) / 2)) / (1 + gfactr.imag)
+    e_out = np.exp(1j * np.pi / 4) * (e_i * np.exp(-1j * np.pi * dcbias_out/2 ) +
+                                      gfactr_out * e_q * np.exp(1j * np.pi * dcbias_out / 2)) / (1 + gfactr_out)
     return e_out
 
 def er_to_g(ext_rat):
@@ -458,7 +459,7 @@ def er_to_g(ext_rat):
 
     Parameters
     ----------
-    ext_rat
+    ext_rat:
 
     Returns
     -------
@@ -467,99 +468,188 @@ def er_to_g(ext_rat):
     g = (10**(ext_rat/20)-1)/(10**(ext_rat/20)+1)
     return g
 
-def DAC_response(sig, enob, cutoff, quantizer_model=True):
+def sim_DAC_response(sig, fs, enob=5, clip_rat=1, quant_bits=0, **dac_params):
     """
     Function to simulate DAC response, including quantization noise (ENOB) and frequency response.
+    
     Parameters
     ----------
-    sig:              Input signal, signal object.
-    enob:             Efficient number of bits      (i.e. 6 bits.)
-    cutoff:           3-dB cutoff frequency of DAC. (i.e. 16 GHz.)
-    quantizer_model:  if quantizer_model='true', use quantizer model to simulate quantization noise.
-                      if quantizer_model='False', use AWGN model to simulate quantization noise.
-    out_volt:         Targeted output amplitude of the RF signal.
-
+    sig:  array_like
+        Input signal 
+    fs: float
+        Sampling frequency of the signal
+    enob: float, optional
+        Effective number of bits of the DAC (i.e. 6 bits.) modelled as AWGN. If enob=0 only quantize. 
+        If both enob and quant_bits are given, quantize first and then add enob noise.
+    clip_rat: float, optional
+        Ratio of signal left after clipping. (i.e. clip_rat=0.8 means 20% of the signal is clipped) (default 1: no clipping)
+    quant_bits: float, optional
+        Number of bits in the quantizer, only applied if not =0. (Default: don't qpply quantization)
+    dac_params: dict, optional
+        Parameters for the DAC response check apply_DAC_filter for the keyword parameters. If this is 
+        empty than do not apply the DAC response
+    
     Returns
     -------
-    filter_sig:     Quantized and filtered output signal
-    snr_enob:       signal-to-noise-ratio induced by ENOB.
+    filter_sig:  array_like
+        Quantized, clipped and filtered output signal
     """
-    powsig_mean = (abs(sig) ** 2).mean()  # mean power of the real signal
-
-    # Apply dac model to real signal
-    if not np.iscomplexobj(sig):
-        if quantizer_model:
-            sig_enob_noise = quantize_signal_New(sig, nbits=enob, rescale_in=True, rescale_out=True)
-            pownoise_mean = (abs(sig_enob_noise-sig)**2).mean()
-            snr_enob = 10*np.log10(powsig_mean/pownoise_mean)  # unit:dB
-        else:
-            # Add AWGN noise due to ENOB
-            x_max = abs(sig).max()           # maximum amplitude of the signal
-            delta = x_max / 2**(enob-1)
-            pownoise_mean = delta ** 2 / 12
-            sig_enob_noise = add_awgn(sig, np.sqrt(pownoise_mean))
-            snr_enob = 10*np.log10(powsig_mean/pownoise_mean)  # unit:dB
-
-        # Apply 2-order bessel filter to simulate frequency response of DAC
-        filter_sig = filter_signal_analog(sig_enob_noise, cutoff, ftype="bessel", order=2)
-
-    # Apply dac model to complex signal
+    if np.isclose(clip_rat, 1):
+        sig_clip = sig
     else:
-        if quantizer_model:
-            sig_enob_noise = quantize_signal_New(sig, nbits=enob, rescale_in=True, rescale_out=True)
-            pownoise_mean = (abs(sig_enob_noise-sig)**2).mean()  # include noise in real part and imag part
-            snr_enob = 10*np.log10(powsig_mean/pownoise_mean)  # unit:dB
-        else:
-            # Add AWGN noise due to ENOB
+        sig_res = rescale_signal(sig, 1/clip_rat)
+        sig_clip = clipper(sig_res, 1)
+    if not np.isclose(quant_bits, 0):
+        sig_clip = quantize_signal_New(sig_clip, nbits=quant_bits, rescale_in=True, rescale_out=True)
+    if not np.isclose(enob, 0):
+        sig_clip = apply_enob_as_awgn(sig_clip, enob)
+    if dac_params:
+        filter_sig = apply_DAC_filter(sig_clip, fs, **dac_params)
+    else:
+        filter_sig = sig_clip
+    return filter_sig
 
-            x_max = np.maximum(abs(sig.real).max(), abs(sig.imag).max())    # maximum amplitude in real or imag part
-            delta = x_max / 2**(enob-1)
-            pownoise_mean = delta ** 2 / 12
-            sig_enob_noise = add_awgn(sig, np.sqrt(2*pownoise_mean))  # add two-time noise power to complex signal
-            snr_enob = 10*np.log10(powsig_mean/2/pownoise_mean)  # Use half of the signal power to calculate snr
-
-        # Apply 2-order bessel filter to simulate frequency response of DAC
-        filter_sig_re = filter_signal_analog(sig_enob_noise.real, cutoff, ftype="bessel", order=2)
-        filter_sig_im = filter_signal_analog(sig_enob_noise.imag, cutoff, ftype="bessel", order=2)
-        filter_sig = filter_sig_re + 1j* filter_sig_im
-
-    return filter_sig, sig_enob_noise, snr_enob
-
-def Simulate_transmitter_response(sig, enob=6, cutoff=16e9, target_voltage=3.5, power_in=0):
+def apply_DAC_filter(sig, fs, cutoff=18e9, fn=None, ch=1):
     """
+    Apply the frequency response filter of the DAC. This function
+    uses either a 2nd order Bessel filter or a measured frequency response
+    loaded from a file.
+
+    Parameters
+    ----------
+    sig : array_like
+        signal to be filtered. Can be real or complex
+    fs : float
+        sampling rate of the signal
+    cutoff : float, optional
+        Cutoff frequency used by only by Bessel filter
+    fn : string, optional
+        filename of a experimentally measured response, if None use a Bessel
+        filter approximation
+    ch : int, optional
+        channel number of the measured response to use
+    Returns
+    -------
+    filter_sig : array_like
+        filtered signal
+    """
+    # filtering was split into real and imaginary before but that should not be necessary
+    if fn is None:
+        filter_sig = filter_signal(sig, fs, cutoff, ftype="bessel", order=2)
+    else:
+        H_dac = load_dac_response(fn, fs, sig.shape[-1], ch=ch).astype(sig) # should check if response is real
+        sigf = fft.fft(sig)
+        filter_sig = fft.ifft(sigf * H_dac)
+    return filter_sig
+
+def apply_enob_as_awgn(sig, enob, verbose=False):
+    """
+    Add noise from limited ENOB as modelled as AWGN to signal.
+    
+    Parameters
+    ----------
+    sig : array_like
+        input signal
+    enob : float
+        Effective Number of Bits of the ADC or DAC
+    verbose : bool, optional
+        Wether to return additional information
+    Returns
+    -------
+    if verbose is True:
+        sig_enob_noise, snr_enob
+    else:
+        sig_enob_noise
+        
+    sig_enob_noise: array_like
+        signal with added noise
+    snr_enob: float
+        SNR corresponding to the ENOB in dB
+    """
+    powsig_mean = np.mean(abs(sig)**2) 
+    if np.iscomplexobj(sig):
+        x_max = np.maximum(abs(sig.real).max(), abs(sig.imag).max())    # maximum amplitude in real or imag part
+    else:
+        x_max = abs(sig).max()           # maximum amplitude of the signal
+    delta = x_max / 2**(enob-1)
+    pownoise_mean = delta ** 2 / 12
+    sig_enob_noise = add_awgn(sig, np.sqrt(2*pownoise_mean))  # add two-time noise power to complex signal
+    snr_enob = 10*np.log10(powsig_mean/2/pownoise_mean)  # Use half of the signal power to calculate snr
+    if verbose:
+        return sig_enob_noise, snr_enob
+    else:
+        return sig_enob_noise
+
+def load_dac_response(fn, fs, N, ch=1):
+    """
+    Load the measured dac response and adjust it to target sampling frequency.
+
+    Parameters
+    ---------- 
+    fn : string
+        filename of the resposne to be loaded
+    fs: float
+        sampling rate
+    N : int
+        length of the output vector
+    ch: int, optional
+        Which of the DAC channels to load the response for
+    
+    Returns
+    -------
+    dacf_interp : array_like
+        frequency response of the DAC for channel ch with vector length N
+    """
+    npzfile = np.load(fn)
+    dac_f = npzfile['dac_res_ch%d' % ch]
+    # Copy spectrum to the negative frequency side
+    dacf_complex = np.atleast_2d(dac_f[:, 1] * np.exp(1j * dac_f[:, 2]))
+    dacf = np.concatenate((np.fliplr(np.conj(dacf_complex[:, 1:])), dacf_complex), axis=1)
+    dac_freq = np.concatenate((np.fliplr(-np.atleast_2d(dac_f[1:, 0])), np.atleast_2d(dac_f[:, 0])), axis=1)
+    freq_sig_fft = fft.fftfreq(N)*fs
+    # Interpolate the dac response, do zero-padding if fs/2 > 32 GHz
+    polyfit = interpolate.interp1d(dac_freq.flatten(), dacf.flatten(), kind='linear', bounds_error=False, fill_value=dac_f[320, 1])
+    dacf_interp = polyfit(freq_sig_fft)
+    dacf_interp = np.atleast_2d(dacf_interp)
+    return dacf_interp
+
+def sim_tx_response(sig, fs, enob=6, tgt_v=1, clip_rat=1, quant_bits=0, dac_params={"cutoff":18e9, "fn": None, "ch":None}, **mod_prms):
+    """
+    Simulate a realistic transmitter possibly including quantization, noise due to limited ENOB, 
+    and DAC frequency response
 
     Parameters
     ----------
     sig: array_like
-            Input signal used for transmission
-    enob: float
-            efficient number of bits for DAC. UnitL bits
-    cutoff: float
-            3-dB cut-off frequency for DAC. Unit: GHz
-    power_in: float
-            Laser power input to IQ modulator. Default is set to 0 dBm.
+        Input signal used for transmission
+    fs: float
+        Sampling frequency of signal
+    enob: float, optional
+        efficient number of bits for DAC. If enob=0 only use quantizer. Unit: bits
+    tgt_v : float, optional
+        target Voltage in fraction of Vpi
+    clip_rat: float, optional
+        Ratio of signal left after clipping. (i.e. clip_rat=0.8 means 20% of the signal is clipped) (default 1: no clipping)
+    quant_bits: float, optional
+        Number of bits in the quantizer, only applied if not =0. (Default: don't qpply quantization)    
+    dac_params: dict, optional
+        parameters to pass to the DAC filter
+    mod_prms: dict, optional
+        parameters to pass to the modulator (see modulator response for details)
+    
     Returns
     -------
-
+    e_out: array_like
+        Signal with TX impairments
     """
     # Apply signal to DAC model
-    [sig_dac_out, sig_enob_noise, snr_enob] = DAC_response(sig, enob, cutoff, quantizer_model=False)
-
+    sig_dac_out = sim_DAC_response(sig, fs, enob,  clip_rat=clip_rat, quant_bits=quant_bits, **dac_params)
     # Amplify the signal to target voltage(V)
-    sig_amp = ideal_amplifier_response(sig_dac_out, target_voltage)
-
-    # Input quantized signal to IQ modulator
-    rfsig_i = sig_amp.real
-    rfsig_q = sig_amp.imag
-
-    e_out = modulator_response(rfsig_i, rfsig_q, dcsig_i=3.5, dcsig_q=3.5, dcsig_p=3.5 / 2, vpi_i=3.5, vpi_q=3.5, vpi_p=3.5,
-                       gi=1, gq=1, gp=1, ai=0, aq=0)
-    power_out = 10 * np.log10( abs(e_out*np.conj(e_out)).mean() * (10 ** (power_in / 10)))
-
-    # return e_out, power_out, snr_enob_i, snr_enob_q
+    sig_amp = ideal_amplifier_response(sig_dac_out, tgt_v)
+    e_out = modulator_response(sig_amp, **mod_prms)
     return e_out
 
-def ideal_amplifier_response(sig,out_volt):
+def ideal_amplifier_response(sig, out_volt):
     """
     Simulate a ideal amplifier, which just scale RF signal to out_volt.
     Parameters
@@ -598,10 +688,10 @@ def add_dispersion(sig, fs, D, L, wl0=1550e-9):
     """
     C = 2.99792458e8
     N = sig.shape[-1]
-    omega = np.fft.fftfreq(N, 1/fs)*np.pi*2
+    omega = fft.fftfreq(N, 1/fs)*np.pi*2
     beta2 = D * wl0**2 / (C*np.pi*2)
-    H = np.exp(-0.5j * omega**2 * beta2 * L)
-    sff = np.fft.fft(np.fft.ifftshift(sig, axes=-1), axis=-1)
-    sig_out = np.fft.fftshift(np.fft.ifft(sff*H))
+    H = np.exp(-0.5j * omega**2 * beta2 * L).astype(sig.dtype)
+    sff = fft.fft(fft.ifftshift(sig, axes=-1), axis=-1)
+    sig_out = fft.fftshift(fft.ifft(sff*H))
     return sig_out
 

@@ -20,9 +20,10 @@ from __future__ import division, print_function
 import numpy as np
 from qampy.helpers import cabssquared
 from qampy.theory import  cal_symbols_qam, cal_scaling_factor_qam
-from qampy.core.equalisation.cython_equalisation import make_decision as _decision_pyx
-from qampy.core.dsp_cython import soft_l_value_demapper
-from qampy.core.dsp_cython import soft_l_value_demapper_minmax
+from qampy.core.equalisation.pythran_equalisation import make_decision as _decision_pyt
+from qampy.core.pythran_dsp import soft_l_value_demapper, estimate_snr
+from qampy.core.pythran_dsp import soft_l_value_demapper_minmax
+from qampy.core.pythran_dsp import cal_mi_mc, cal_mi_mc_fast
 
 try:
     import arrayfire as af
@@ -39,7 +40,7 @@ def _soft_l_value_demapper_af(rx_symbs, M, snr, bits_map):
     lvl = af.log(tmp[:,:,:,1]) - af.log(tmp[:,:,:,0])
     return np.array(lvl)
 
-def make_decision(signal, symbols, method="pyx", **kwargs):
+def make_decision(signal, symbols, method="pyt", **kwargs):
     """
     Quantize signal array onto symbols.
 
@@ -60,8 +61,8 @@ def make_decision(signal, symbols, method="pyx", **kwargs):
         array of quantized symbols
 
     """
-    if method == "pyx":
-        return _decision_pyx(signal, symbols, **kwargs)
+    if method == "pyt":
+        return _decision_pyt(signal, symbols, **kwargs)
     elif method == "af":
         if af == None:
             raise RuntimeError("Arrayfire was not imported so cannot use this method for quantization")
@@ -300,51 +301,33 @@ def generate_bitmapping_mtx(coded_symbs, coded_bits, M, dtype=np.complex128):
         bit_map[bit,:,1] = coded_symbs[out_mtx[:,bit]]
     return bit_map
 
-def estimate_snr(signal_rx, symbols_tx, gray_symbols, verbose=False):
+def cal_mi(signal, symbols_tx, alphabet, N0, fast=True):
     """
-    Estimate the signal-to-noise ratio from received and known transmitted symbols.
+    Calculate the mutual information for a given (noisy) signal array and the
+    transmitted symbol array.
 
     Parameters
     ----------
-    signal_rx : array_like
-        received signal
+    signal : array_like
+        The signal after transmission to calculate the MI for
     symbols_tx : array_like
-        transmitted symbol sequence
-    gray_symbols : array_like
-        gray coded symbols
-    verbose : bool, optional
-        return verbose output
+        The original symbols that were transmitted
+    alphabet: array_like
+        The symbol alphabet
+    N0 : float
+        The noise strength of the signal in linear units
+    fast : bool
+        Use fast calculation
 
-    Note
-    ----
-    signal_rx and symbols_tx need to be synchronized and have the same length.
-    
     Returns
     -------
-    snr : float
-        estimated linear signal-to-noise ratio
-    if verbose is True also return:
-    S0 : float
-        estimated linear signal power
-    N0 : float
-        estimated linear noise power
+        mi: float
+            The calculated mutual information
     """
-
-    N = gray_symbols.shape[0]
-    Px = np.zeros(N, dtype=np.float64)
-    N0 = 0.
-    mus = np.zeros(N, dtype=np.complex128)
-    sigmas = np.zeros(N, dtype=np.complex128)
-    in_pow = 0.
-    for ind in range(N):
-        sel_symbs = signal_rx[np.bool_(symbols_tx == gray_symbols[ind])]
-        Px[ind] = sel_symbs.shape[0] / signal_rx.shape[0]
-        mus[ind] = np.mean(sel_symbs)
-        sigmas[ind] = np.std(sel_symbs)
-        N0 += np.abs(sigmas[ind])**2*Px[ind]
-        in_pow += np.abs(mus[ind])**2*Px[ind]
-    snr = in_pow/N0
-    if verbose:
-        return snr, in_pow, N0
+    nmodes = signal.shape[0]
+    mi = np.zeros(nmodes, dtype=np.float64)
+    if fast:
+        return cal_mi_mc_fast(signal, symbols_tx, alphabet, N0)
     else:
-        return snr
+        noise = signal-symbols_tx
+        return cal_mi_mc(noise, alphabet, N0)

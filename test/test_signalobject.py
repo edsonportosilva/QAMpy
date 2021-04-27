@@ -357,7 +357,7 @@ class TestPilotSignal(object):
                                       "ph_pilots", "nframes", "frame_len", "pilot_scale"])
     def test_attr_present_from_data(self, attr):
         si = signals.SignalQAMGrayCoded(128, 2**12)
-        s = signals.SignalWithPilots.from_data_array(si, 2**12, 256, 32, 1)
+        s = signals.SignalWithPilots.from_symbol_array(si, 2**12, 256, 32)
         assert getattr(s, attr) is not None
 
     @pytest.mark.parametrize("N", [2 ** 18, 2 ** 12, 2 ** 14])
@@ -404,7 +404,7 @@ class TestPilotSignal(object):
     def test_from_data_seqlen(self, N):
         QPSK = signals.SignalQAMGrayCoded(4, 200)
         data = signals.SignalQAMGrayCoded(128, 2 ** 12)
-        s = signals.SignalWithPilots.from_data_array(data, 2 ** 12, N, 0, 1)
+        s = signals.SignalWithPilots.from_symbol_array(data, 2 ** 12, N, 0)
         dist = abs(s[0, :N, np.newaxis] - QPSK.coded_symbols)
         npt.assert_array_almost_equal(np.min(dist, axis=1), 0)
 
@@ -412,25 +412,25 @@ class TestPilotSignal(object):
     def test_from_data_phpilots(self, N):
         QPSK = signals.SignalQAMGrayCoded(4, 200)
         data = signals.SignalQAMGrayCoded(128, 2 ** 12)
-        s = signals.SignalWithPilots.from_data_array(data, 2 ** 12, 0, N, 1)
+        s = signals.SignalWithPilots.from_symbol_array(data, 2 ** 12, 0, N)
         dist = abs(s[0, ::N, np.newaxis] - QPSK.coded_symbols)
         npt.assert_array_almost_equal(np.min(dist, axis=1), 0)
 
     def test_from_data_symbols(self):
         data = signals.SignalQAMGrayCoded(128, 2 ** 12)
-        s = signals.SignalWithPilots.from_data_array(data, 2 ** 12, 128, 16, 1)
+        s = signals.SignalWithPilots.from_symbol_array(data, 2 ** 12, 128, 16)
         npt.assert_array_almost_equal(data[:, :s.symbols.shape[1]], s.symbols)
 
     def test_from_data_symbols2(self):
         data = signals.SignalQAMGrayCoded(128, 2 ** 12)
         idx, idx_d, idx_p = signals.SignalWithPilots._cal_pilot_idx(2 ** 12, 128, 16)
-        s = signals.SignalWithPilots.from_data_array(data, 2 ** 12, 128, 16, 1)
+        s = signals.SignalWithPilots.from_symbol_array(data, 2 ** 12, 128, 16)
         npt.assert_array_almost_equal(s[:, idx_d], data[:, :np.count_nonzero(idx_d)])
 
     @pytest.mark.parametrize("p_ins", [0, 1, 16, 32])
     def test_from_data_symbols3(self, p_ins):
         data = signals.SignalQAMGrayCoded(128, 2 ** 12 - 128)
-        s = signals.SignalWithPilots.from_data_array(data, 2 ** 12, 128, p_ins, 1)
+        s = signals.SignalWithPilots.from_symbol_array(data, 2 ** 12, 128, p_ins)
         assert s.shape[1] == 2 ** 12
 
     @pytest.mark.parametrize("os", np.arange(2, 5))
@@ -438,7 +438,7 @@ class TestPilotSignal(object):
         N = 2 ** 12 - 128
         Nn = os * N
         s = signals.SignalQAMGrayCoded(128, N)
-        sn = signals.SignalWithPilots.from_data_array(s, 2 ** 12, 128, None, 1)
+        sn = signals.SignalWithPilots.from_symbol_array(s, 2 ** 12, 128, None)
         si = sn.resample(2, beta=0.2, renormalise=False)
         assert si.shape[0] == sn.shape[0]
         assert si.shape[1] == 2 * sn.shape[1]
@@ -452,29 +452,14 @@ class TestPilotSignal(object):
         s = signals.SignalWithPilots(64, N, Nseq, ph_i, nframes=nframes)
         npt.assert_array_almost_equal(s.get_data(), np.tile(s.symbols, nframes))
 
-
-    @pytest.mark.parametrize("nmodes", [1, 2, 3])
-    @pytest.mark.parametrize("nframes", [1, 2, 3])
-    def test_get_data2(self, nmodes, nframes):
-        N = 2 ** 16
-        Nseq = 256
-        ph_i = 32
-        s = signals.SignalWithPilots(64, N, Nseq, ph_i, nframes=nframes, nmodes=nmodes)
-        shifts = []
-        for i in range(nmodes):
-            sf = np.random.randint(0, 2**12)
-            shifts.append(sf)
-            s[i] = np.roll(s[i], sf)
-        npt.assert_array_almost_equal(s.get_data(shifts), np.tile(s.symbols, nframes))
-
     def test_symbol_inherit(self):
         s = signals.SignalQAMGrayCoded(128, 2 ** 16, nmodes=2)
-        sp = signals.SignalWithPilots.from_data_array(s, 2 ** 16, 256, 32)
+        sp = signals.SignalWithPilots.from_symbol_array(s, 2 ** 16, 256, 32)
         npt.assert_array_almost_equal(sp.symbols, sp.get_data())
 
     def test_symbol_inherit_shape(self):
         s = signals.SignalQAMGrayCoded(128, 2 ** 16, nmodes=2)
-        sp = signals.SignalWithPilots.from_data_array(s, 2 ** 16, 256, 32)
+        sp = signals.SignalWithPilots.from_symbol_array(s, 2 ** 16, 256, 32)
         N = 2**16-256
         ph = N//32
         NN = N-ph
@@ -676,9 +661,11 @@ class TestSignal(object):
 
 class TestSignalQualityCorrectnes(object):
     @pytest.mark.parametrize("err_syms", np.arange(1, 100, 10))
-    def test_ser_calculation(self, err_syms):
+    @pytest.mark.parametrize("shift", np.random.randint(-200, 200, 10))
+    def test_ser_calculation(self, err_syms, shift):
         N = 1000
         s = signals.SignalQAMGrayCoded(64, N, nmodes=1)
+        s = np.roll(s, shift, axis=-1)
         d = np.diff(np.unique(s.coded_symbols.real))
         dmin = d[np.where(d>0)].min()
         ii = np.arange(1,err_syms+1)
@@ -696,6 +683,21 @@ class TestSignalQualityCorrectnes(object):
         s2 = _flip_symbols(s, ii, 2*dmin)
         ser = s.cal_ser()
         npt.assert_almost_equal(ser.flatten(), err_syms/N)
+        
+    @pytest.mark.parametrize("M", [4,32,64,256])
+    @pytest.mark.parametrize("shift", np.random.randint(-1000,1000, 2))
+    @pytest.mark.parametrize("snr", np.linspace(-20, 40, 20))
+    def test_ser_vs_theory(self, shift, M, snr):
+        from qampy import theory, impairments
+        s = signals.SignalQAMGrayCoded(M, 10**5, nmodes=1)
+        ser_t = theory.ser_vs_es_over_n0_qam(10**(snr/10), M)
+        if ser_t < 1e-4:
+            assert True
+            return
+        s2 = impairments.change_snr(s, snr)
+        s2 = np.roll(s2, shift, axis=-1)
+        ser = s2.cal_ser()
+        npt.assert_allclose(ser, ser_t, rtol=0.4)
 
     @pytest.mark.parametrize("err_syms", np.arange(1, 100, 10))
     def test_ber_calculation(self, err_syms):
@@ -728,7 +730,7 @@ class TestPilotCalcs(object):
         s = s.resample(2*s.fs, beta=0.1)
         s = impairments.change_snr(s, 40)
         s = np.roll(s, shift, axis=-1)
-        wx1 = s.sync2frame(Ntaps=ntaps, returntaps=True, adaptive_stepsize=True, mu=1e-2, method="cma", Niter=10)
+        wx1, ret = s.sync2frame(Ntaps=ntaps, returntaps=True, adaptive_stepsize=True, mu=1e-2, method="cma", Niter=10)
         ss = np.roll(s, -s.shiftfctrs[0], axis=-1)
         so = core.equalisation.apply_filter(ss, ss.os, wx1)
         npt.assert_array_equal(np.sign(so[0,:512].imag), np.sign(s.pilot_seq[0].imag))
@@ -1008,20 +1010,15 @@ class TestDtype(object):
     @pytest.mark.parametrize("nframes", [1, 2])
     def test_pilot_signal_from_data(self, dt, nframes):
         s1 = signals.SignalQAMGrayCoded(32, 2**12, dtype=dt)
-        s = signals.SignalWithPilots.from_data_array(s1, 2**12, 256, 32, nframes=nframes)
+        s = signals.SignalWithPilots.from_symbol_array(s1, 2**12, 256, 32, nframes=nframes)
         assert np.dtype(dt) is s.dtype
         assert np.dtype(dt) is s.symbols.dtype
         assert np.dtype(dt) is s.pilots.dtype
 
     @pytest.mark.parametrize("dt", [np.complex64, np.complex128])
-    @pytest.mark.parametrize("shift", [None, 120, 223])
-    def test_pilot_signal(self, dt, shift):
+    def test_pilot_signal(self, dt):
         s = signals.SignalWithPilots(32,2**12, 256, 32, dtype=dt )
-        if shift is not None:
-            s1 = np.roll(s, 120, axis=-1)
-            s3 = s1.get_data(np.array([shift]))
-        else:
-            s3 = s.get_data()
+        s3 = s.get_data()
         assert np.dtype(dt) is s3.dtype
         assert np.dtype(dt) is s3.symbols.dtype
 

@@ -21,7 +21,7 @@ def test_phaserec_bps(lw, M):
     s = impairments.change_snr(s, snr)
     s = np.roll(s, shiftN, axis=1)
     pp = impairments.apply_phase_noise(s, lw)
-    recoverd, ph1 = phaserec.bps(pp, M , 14, method='pyx')
+    recoverd, ph1 = phaserec.bps(pp, M , 14, method='pyt')
     recoverd = helpers.dump_edges(recoverd, 20)
     ser = recoverd.cal_ser()
     npt.assert_allclose(ser, 0)
@@ -40,7 +40,7 @@ def test_phaserec_bps_2stage(lw, M):
     s = impairments.change_snr(s, snr)
     s = np.roll(s, shiftN, axis=1)
     pp = impairments.apply_phase_noise(s, lw)
-    recoverd, ph1 = phaserec.bps_twostage(pp, max(4, M/2), 14, method='pyx')
+    recoverd, ph1 = phaserec.bps_twostage(pp, max(4, M//2), 14, method='pyt')
     recoverd = helpers.dump_edges(recoverd, 20)
     ser = recoverd.cal_ser()
     npt.assert_allclose(ser, 0)
@@ -62,7 +62,7 @@ class TestDualMode(object):
         s = signals.SignalQAMGrayCoded(M, N, nmodes=2, fb=fb)
         s = s.resample(fs, beta=beta, renormalise=True)
         s = impairments.rotate_field(s, phi)
-        sout, wxy, err = equalisation.dual_mode_equalisation(s, (mu1, mu2), Ntaps=3, methods=(method1, method2),
+        sout, wxy, err = equalisation.dual_mode_equalisation(s, (mu1, mu2), Ntaps=5, Niter=(3,3), methods=(method1, method2),
                                                              adaptive_stepsize=(True, True))
         sout = helpers.normalise_and_center(sout)
         ser = sout.cal_ser()
@@ -112,14 +112,14 @@ class TestDualMode(object):
         N = 2**16
         snr = 15
         beta = 0.9
-        mu1 = 4e-5
-        mu2 = 4e-5
+        mu1 = 4e-3
+        mu2 = 4e-3
         M = 32
         ntaps = 21
         s = signals.SignalQAMGrayCoded(M, N, nmodes=2, fb=fb)
         s = s.resample(fs, beta=beta, renormalise=True)
         s = impairments.apply_PMD(s, theta, dgd)
-        sout, wxy, err = equalisation.dual_mode_equalisation(s, (mu1, mu2), Ntaps=ntaps, methods=(method1, method2),
+        sout, wxy, err = equalisation.dual_mode_equalisation(s, (mu1, mu2), Niter=(3,3), Ntaps=ntaps, methods=(method1, method2),
                                                              adaptive_stepsize=(True, True))
         sout = helpers.normalise_and_center(sout)
         ser = sout.cal_ser()
@@ -137,11 +137,11 @@ class TestDualMode(object):
         N = 2**16
         snr = 15
         beta = 0.9
-        mu1 = 2e-5
+        mu1 = 2e-3
         if method2 == "mddma":
-            mu2 = 1.0e-6
+            mu2 = 1.0e-3
         else:
-            mu2 = 2e-5
+            mu2 = 2e-3
         M = 32
         ntaps = 21
         s = signals.SignalQAMGrayCoded(M, N, nmodes=2, fb=fb)
@@ -149,7 +149,7 @@ class TestDualMode(object):
         s = impairments.apply_phase_noise(s, lw)
         s = impairments.apply_PMD(s, theta, dgd)
         sout, wxy, err = equalisation.dual_mode_equalisation(s, (mu1, mu2), Ntaps=ntaps, methods=(method1, method2),
-                                                             adaptive_stepsize=(False, False))
+                                                             adaptive_stepsize=(True, True))
         sout, ph = phaserec.bps(sout, M, 21)
         sout = helpers.normalise_and_center(sout)
         sout = helpers.dump_edges(sout, 50)
@@ -161,21 +161,21 @@ class TestDualMode(object):
 
 class TestLMS(object):
     @pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
-    @pytest.mark.parametrize("method", ["sbd", "mddma", "dd", "sca", "cme"])
+    @pytest.mark.parametrize("method", ["sbd", "mddma", "dd", "dd_real", "dd_data_real", "sbd_data", "rde", "mrde"])
     def test_method(self, dtype, method):
         fb = 40.e9
         os = 2
         fs = os*fb
         N = 2**13
         beta = 0.1
-        mu = 0.2e-1
+        mu = 0.2e-2
         M = 16
-        taps = 7
+        taps = 13
         s = signals.SignalQAMGrayCoded(M, N, nmodes=2, fb=fb, dtype=dtype)
         s = s.resample(fs, beta=beta, renormalise=True)
         #s = impairments.change_snr(s, 20)
         #wxy, err = equalisation.equalise_signal(s, mu, Ntaps=taps, method=method, adaptive_stepsize=True)
-        wxy, err = equalisation.equalise_signal(s, mu, Ntaps=taps, method=method, adaptive_stepsize=True)
+        wxy, err = equalisation.equalise_signal(s, mu, Niter=3, Ntaps=taps, method=method, adaptive_stepsize=True)
         sout = equalisation.apply_filter(s, wxy)
         ser = sout.cal_ser()
         #plt.plot(sout[0].real, sout[0].imag, 'r.')
@@ -186,7 +186,7 @@ class TestLMS(object):
 
 
 class TestCMA(object):
-    @pytest.mark.parametrize("method", ["cma", "mcma"])
+    @pytest.mark.parametrize("method", ["cma", "mcma", "cma_real"])
     @pytest.mark.parametrize("phi", np.linspace(4.3, 8, 5))
     def test_pol_rot(self, method, phi):
         phi = np.pi/phi
@@ -197,11 +197,11 @@ class TestCMA(object):
         beta = 0.1
         mu = 0.1e-2
         M = 4
-        ntaps = 3
+        ntaps = 5
         s = signals.SignalQAMGrayCoded(M, N, nmodes=2, fb=fb)
         s = s.resample(fs, beta=beta, renormalise=True)
         s = impairments.rotate_field(s, phi)
-        wxy, err = equalisation.equalise_signal(s, mu, Ntaps=ntaps, method=method,
+        wxy, err = equalisation.equalise_signal(s, mu, Niter=3, Ntaps=ntaps, method=method,
                                                 adaptive_stepsize=True , avoid_cma_sing=False)
         sout = equalisation.apply_filter(s, wxy)
         #plt.plot(sout[0].real, sout[0].imag, '.r')
@@ -211,7 +211,7 @@ class TestCMA(object):
            #ser = sout[::-1].cal_ser
         npt.assert_allclose(ser, 0)
 
-    @pytest.mark.parametrize("method", ["cma", "mcma"])
+    @pytest.mark.parametrize("method", ["cma", "mcma", "cma_real"])
     @pytest.mark.parametrize("phi", np.linspace(4.3, 5.8, 3))
     @pytest.mark.parametrize("dgd", np.linspace(10, 300, 4)*1e-12)
     def test_pmd(self, method, phi, dgd):
@@ -222,13 +222,13 @@ class TestCMA(object):
         N = 2**16
         snr = 15
         beta = 0.1
-        mu = 0.8e-3
+        mu = 4e-3
         M = 4
-        ntaps = 11
+        ntaps = 21
         s = signals.SignalQAMGrayCoded(M, N, nmodes=2, fb=fb)
         s = s.resample(fs, beta=beta, renormalise=True)
         s = impairments.apply_PMD(s, theta, dgd)
-        wxy, err = equalisation.equalise_signal(s, mu, Ntaps=ntaps, method=method,
+        wxy, err = equalisation.equalise_signal(s, mu, Niter=5, Ntaps=ntaps, method=method,
                                                 adaptive_stepsize=True, avoid_cma_sing=False)
         sout = equalisation.apply_filter(s, wxy)
         sout = helpers.normalise_and_center(sout)
@@ -294,14 +294,14 @@ class TestCMA(object):
         N = 2**16
         snr = 15
         beta = 0.3
-        mu = 4e-5
+        mu = 1e-2
         M = 4
         ntaps = 21
         s = signals.SignalQAMGrayCoded(M, N, nmodes=2, fb=fb)
         s = s.resample(fs, beta=beta, renormalise=True)
         s = impairments.apply_phase_noise(s, lw)
         s = impairments.apply_PMD(s, theta, dgd)
-        wxy, err = equalisation.equalise_signal(s, mu, Ntaps=ntaps, method=method, adaptive_stepsize=False)
+        wxy, err = equalisation.equalise_signal(s, mu, Niter=3, Ntaps=ntaps, method=method, adaptive_stepsize=True)
         sout = equalisation.apply_filter(s, wxy)
         sout, ph = phaserec.viterbiviterbi(sout,11)
         sout = helpers.normalise_and_center(sout)
@@ -324,7 +324,7 @@ class TestCMA(object):
         beta = 0.3
         mu = 2e-4
         M = 4
-        ntaps = 21
+        ntaps = 15
         s = signals.SignalQAMGrayCoded(M, N, nmodes=2, fb=fb)
         s = s.resample(fs, beta=beta, renormalise=True)
         s = impairments.apply_phase_noise(s, lw)

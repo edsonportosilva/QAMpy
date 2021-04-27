@@ -21,14 +21,14 @@ import numpy as np
 import abc
 import fractions
 import warnings
-from bitarray import bitarray
 
 from qampy import helpers
 from qampy.core import resample
 from qampy import theory, phaserec
 from qampy.core import ber_functions, pilotbased_receiver
 from qampy.core.prbs import make_prbs_extXOR
-from qampy.core.signal_quality import make_decision, generate_bitmapping_mtx, estimate_snr, soft_l_value_demapper_minmax, soft_l_value_demapper
+from qampy.core.signal_quality import make_decision, generate_bitmapping_mtx,\
+    estimate_snr, soft_l_value_demapper_minmax, soft_l_value_demapper, cal_mi
 from qampy.core.io import save_signal
 
 
@@ -192,6 +192,8 @@ class SignalBase(np.ndarray):
     def recreate_from_np_array(self, arr, **kwargs):
         obj = arr.view(self.__class__)
         self._copy_inherits(self, obj)
+        if "fb" in kwargs and not "fs" in kwargs:
+            kwargs["fs"] = self.os * kwargs['fb']
         for k, v in kwargs.items():
             if "_"+k in self._inheritattr_:
                 k = "_" + k
@@ -206,9 +208,13 @@ class SignalBase(np.ndarray):
         Nnew = int(np.round(os*arr.shape[1]))
         if np.isclose(os, 1):
             return arr.copy().view(cls)
+        if "Ts" in kwargs:
+            Ts = kwargs.pop("Ts")
+        else:
+            Ts = 1/fb
         onew = []
         for i in range(arr.shape[0]):
-            onew.append(resample.rrcos_resample(arr[i], fold, fnew, Ts=1 / fb, **kwargs))
+            onew.append(resample.rrcos_resample(arr[i], fold, fnew, Ts=Ts, **kwargs))
         onew = np.asarray(onew, dtype=arr.dtype).view(cls)
         cls._copy_inherits(arr, onew)
         return onew
@@ -302,8 +308,8 @@ class SignalBase(np.ndarray):
         """
         signal_rx = self._signal_present(signal_rx)
         nmodes = signal_rx.shape[0]
+        symbols_tx, signal_rx = self._sync_and_adjust(self.symbols, signal_rx, synced)
         data_demod = self.make_decision(signal_rx)
-        symbols_tx, data_demod = self._sync_and_adjust(self.symbols, data_demod, synced)
         #errs = np.count_nonzero(data_demod - symbols_tx, axis=-1)
         errs = data_demod - symbols_tx
         if verbose:
@@ -346,10 +352,9 @@ class SignalBase(np.ndarray):
         """
         signal_rx = self._signal_present(signal_rx)
         nmodes = signal_rx.shape[0]
-        syms_demod = self.make_decision(signal_rx)
-        symbols_tx, syms_demod = self._sync_and_adjust(self.symbols, syms_demod, synced)
-        bits_demod = self.demodulate(syms_demod)
-        tx_synced = self.demodulate(symbols_tx)
+        symbols_tx, signal_rx = self._sync_and_adjust(self.symbols, signal_rx, synced)
+        bits_demod = self.demodulate(signal_rx)
+        tx_synced = self.demodulate(symbols_tx) #currently this is overkill, should instead move according to
         errs = tx_synced ^ bits_demod
         if verbose:
             return np.count_nonzero(errs, axis=-1) / bits_demod.shape[1], errs, tx_synced
@@ -391,7 +396,10 @@ class SignalBase(np.ndarray):
         """
         signal_rx = self._signal_present(signal_rx)
         nmodes = signal_rx.shape[0]
-        symbols_tx, signal_rx = self._sync_and_adjust(self.symbols, signal_rx, synced)
+        if blind:
+            symbols_tx = self.make_decision(signal_rx) 
+        else:
+            symbols_tx, signal_rx = self._sync_and_adjust(self.symbols, signal_rx, synced)
         return np.asarray(
             np.sqrt(np.mean(helpers.cabssquared(symbols_tx - signal_rx), axis=-1)))  # /np.mean(abs(self.symbols)**2))
 
@@ -421,17 +429,15 @@ class SignalBase(np.ndarray):
             symbols_tx = self.symbols
         symbols_tx, signal_rx = self._sync_and_adjust(symbols_tx, signal_rx, synced)
         snr = np.zeros(nmodes, dtype=np.float64)
+        s0 = np.zeros(nmodes, dtype=np.float64)
+        n0 = np.zeros(nmodes, dtype=np.float64)
+        for i in range(nmodes):
+            snr[i], s0[i], n0[i] = estimate_snr(signal_rx[i], symbols_tx[i], self.coded_symbols)
         if verbose:
-            s0 = np.zeros(nmodes, dtype=np.float64)
-            n0 = np.zeros(nmodes, dtype=np.float64)
-            for i in range(nmodes):
-                snr[i], s0[i], n0[i] = estimate_snr(signal_rx[i], symbols_tx[i], self.coded_symbols, verbose=verbose)
             return snr, s0, n0
         else:
-            for i in range(nmodes):
-                snr[i] = estimate_snr(signal_rx[i], symbols_tx[i], self.coded_symbols, verbose=verbose)
             return snr
-
+        
     def cal_gmi(self, signal_rx=None, synced=False, snr=None, llr_minmax=False):
         """
         Calculate the generalized mutual information for the received signal.
@@ -445,7 +451,7 @@ class SignalBase(np.ndarray):
         synced : bool, optional
             wether input and outputs are synchronized
         snr : float, optional
-            estimate of SNR, if not given use the signal to estimate
+            estimate of SNR in dB, if not given use the signal to estimate
         llr_minmax : bool, optional
             use minmax method for log-likelyhood ratio calculation, much faster but more unaccurate (we do not minimize over s)
 
@@ -464,19 +470,64 @@ class SignalBase(np.ndarray):
         tx, rx = self._sync_and_adjust(symbols_tx, signal_rx, synced)
         if snr is None:
             snr = self.est_snr(rx, synced=True, symbols_tx=tx)
-        bits = self.demodulate(self.make_decision(tx)).astype(np.int)
+        else:
+            snr = np.atleast_1d(snr)
+            if snr.size != nmodes:
+                snr = np.ones(nmodes)*10**(snr/10)
+            else:
+                snr = 10**(snr/10)
+        bits = self.demodulate(tx).astype(np.int)
+        bits = bits.reshape(nmodes, -1, self.Nbits)
         # For every mode present, calculate GMI based on SD-demapping
         for mode in range(nmodes):
             if llr_minmax:
-                l_values = soft_l_value_demapper_minmax(rx[mode], self.M, snr[mode], self._bitmap_mtx)
+                l_values = soft_l_value_demapper_minmax(rx[mode], self.Nbits, snr[mode], self._bitmap_mtx)
             else:
-                l_values = soft_l_value_demapper(rx[mode], self.M, snr[mode], self._bitmap_mtx)
+                l_values = soft_l_value_demapper(rx[mode], self.Nbits, snr[mode], self._bitmap_mtx)
             # GMI per bit
-            for bit in range(self.Nbits):
-                GMI_per_bit[mode, bit] = 1 - np.mean(
-                    np.log2(1 + np.exp(((-1) ** bits[mode, bit::self.Nbits]) * l_values[bit::self.Nbits])))
-            GMI[mode] = np.sum(GMI_per_bit[mode])
+            GMI_per_bit[mode, :] = 1 - np.mean(np.log2(1 + np.exp(((-1)**bits[mode]) * l_values)), axis=0)
+        GMI = np.sum(GMI_per_bit, axis=-1)
         return GMI, GMI_per_bit
+
+    def cal_mi(self, signal_rx=None, synced=False, snr=None, fast=True):
+        """
+        Calculate the mutual information for the received signal.
+
+        Parameters
+        ----------
+        signal_rx : array_like
+            equalised input signal
+        symbols_tx : array_like
+            transmitted symbols (default:None use self.symbols_tx of the modulator)
+        synced : bool, optional
+            wether input and outputs are synchronized
+        snr : float, optional
+            estimate of SNR in dB, if not given use the signal to estimate
+        fast : bool, optional
+            use fast calculation method
+
+        Returns
+        -------
+        mi : array_like
+            generalized mutual information per mode
+        """
+        signal_rx = self._signal_present(signal_rx)
+        symbols_tx = self.symbols
+        nmodes = signal_rx.shape[0]
+        mi = np.zeros(nmodes, dtype=np.float64)
+        tx, rx = self._sync_and_adjust(symbols_tx, signal_rx, synced)
+        if snr is None:
+            snr = self.est_snr(rx, synced=True, symbols_tx=tx)
+            N0 = 1/snr
+        else:
+            snr = np.atleast_1d(snr)
+            if snr.size != nmodes:
+                N0 = np.ones(nmodes)*10**(-snr/10)
+            else:
+                N0 = 10**(-snr/10)
+        for mode in range(nmodes):
+            mi[mode] = cal_mi(rx[mode], tx[mode], self.coded_symbols, N0[mode], fast)
+        return mi
 
     def normalize_and_center(self, symbol_based=False, synced=False):
         """
@@ -593,7 +644,7 @@ class SignalQAMGrayCoded(SignalBase):
         coded_symbols, _graycode, encoding, bitmap_mtx = cls._generate_mapping(M, scale, dtype=dtype)
         Nbits = int(N * np.log2(M))
         bits = bitclass(Nbits, nmodes=nmodes, **kwargs)
-        obj = cls._modulate(bits, encoding, M, dtype=dtype)
+        obj = cls._modulate(bits, encoding, coded_symbols, dtype=dtype)
         obj = obj.view(cls)
         obj._bitmap_mtx = bitmap_mtx
         obj._encoding = encoding
@@ -607,14 +658,14 @@ class SignalQAMGrayCoded(SignalBase):
         return obj
 
     @staticmethod
-    def _demodulate(symbols, encoding):
+    def _demodulate(symbol_idx, encoding):
         """
         Decode array of input symbols to bits according to the coding of the modulator.
 
         Parameters
         ----------
-        symbols   : array_like
-            array of complex input symbols
+        symbol_idx   : array_like
+            array of indices of the symbols
         encoding  : array_like
             mapping between symbols and bits
 
@@ -627,19 +678,14 @@ class SignalQAMGrayCoded(SignalBase):
         outbits   : array_like
             array of booleans representing bits with same number of dimensions as symbols
         """
-        if symbols.ndim is 1:
-            bt = bitarray()
-            bt.encode(encoding, symbols)
-            return np.fromstring(bt.unpack(zero=b'\x00', one=b'\x01'), dtype=np.bool)
-        bits = []
-        for i in range(symbols.shape[0]):
-            bt = bitarray()
-            bt.encode(encoding, symbols[i])
-            bits.append(np.fromstring(bt.unpack(zero=b'\x00', one=b'\x01'), dtype=np.bool))
-        return np.array(bits)
+        bits = encoding[symbol_idx]
+        if symbol_idx.ndim > 1:
+            return bits.reshape(symbol_idx.shape[0], -1)
+        else:
+            return bits.flatten()
 
     @staticmethod
-    def _modulate(data, encoding, M, dtype=np.complex128):
+    def _modulate(data, encoding, coded_symbols, dtype=np.complex128):
         """
         Modulate a bit sequence into QAM symbols
 
@@ -655,15 +701,16 @@ class SignalQAMGrayCoded(SignalBase):
         """
         data = np.atleast_2d(data)
         nmodes = data.shape[0]
+        M = coded_symbols.shape[0]
         bitspsym = int(np.log2(M))
         Nsym = data.shape[1] // bitspsym
         out = np.empty((nmodes, Nsym), dtype=dtype)
-        N = data.shape[1] - data.shape[1] % bitspsym
+        N = data.shape[1] - data.shape[-1] % bitspsym
+        cov = 2**np.arange(bitspsym-1, -1, -1)
         for i in range(nmodes):
-            datab = bitarray()
-            datab.pack(data[i, :N].tobytes())
-            # the below is not really the fastest method but easy encoding/decoding is possible
-            out[i, :] = np.fromstring(b''.join(datab.decode(encoding)), dtype=dtype)
+            datab = data[i, :N].reshape(-1, bitspsym)
+            idx = datab.dot(cov)
+            out[i, :] = coded_symbols[idx]
         return out
 
     @classmethod
@@ -702,8 +749,8 @@ class SignalQAMGrayCoded(SignalBase):
         coded_symbols, graycode, encoding, bitmap_mtx = cls._generate_mapping(M, scale, dtype=dtype)
         out = np.empty_like(symbs).astype(dtype)
         for i in range(symbs.shape[0]):
-            out[i] = make_decision(symbs[i], coded_symbols)
-        bits = cls._demodulate(out, encoding)
+            out[i], _, idx = make_decision(np.copy(symbs[i]), coded_symbols) # need a copy to avoid a pythran error
+        bits = cls._demodulate(idx, encoding)
         obj = np.asarray(out).view(cls)
         obj._M = M
         obj._fb = fb
@@ -750,7 +797,7 @@ class SignalQAMGrayCoded(SignalBase):
         # out = []
         # for i in range(arr.shape[0]):
         #    out.append( cls._modulate(arr[i], encoding, M))
-        out = cls._modulate(arr, encoding, M, dtype)
+        out = cls._modulate(arr, encoding, coded_symbols, dtype)
         # out = np.asarray(out)
         obj = np.asarray(out).view(cls)
         obj._M = M
@@ -766,20 +813,21 @@ class SignalQAMGrayCoded(SignalBase):
 
     @classmethod
     def _generate_mapping(cls, M, scale, dtype=np.complex128):
-        Nbits = np.log2(M)
+        Nbits = int(np.log2(M))
         symbols = theory.cal_symbols_qam(M).astype(dtype)
         # check if this gives the correct mapping
         symbols /= scale
         _graycode = theory.gray_code_qam(M)
-        coded_symbols = symbols[_graycode]
-        bformat = "0%db" % Nbits
-        encoding = dict([(symbols[i],
-                          bitarray(format(_graycode[i], bformat)))
-                         for i in range(len(_graycode))])
-        bitmap_mtx = generate_bitmapping_mtx(coded_symbols, cls._demodulate(coded_symbols, encoding), M, dtype=dtype)
+        u = np.zeros_like(_graycode)
+        u[_graycode] = np.arange(u.size)
+        coded_symbols = symbols[u]
+        encoding = np.zeros((_graycode.size, Nbits), np.bool)
+        for i in range(_graycode.size):
+            encoding[i] = np.fromstring(np.binary_repr(i, width=Nbits), dtype="S1").astype(np.bool)
+        bitmap_mtx = generate_bitmapping_mtx(coded_symbols, cls._demodulate(np.arange(_graycode.size), encoding), M, dtype=dtype)
         return coded_symbols, _graycode, encoding, bitmap_mtx
 
-    def make_decision(self, signal=None):
+    def make_decision(self, signal=None, verbose=False):
         """
         Make symbol decisions based on the input field. Decision is made based on difference from constellation points
 
@@ -795,9 +843,14 @@ class SignalQAMGrayCoded(SignalBase):
         """
         signal = self._signal_present(signal)
         outsyms = np.zeros_like(signal)
+        dist = np.zeros(signal.shape, dtype=signal.real.dtype)
+        idx = np.zeros(signal.shape, dtype=np.uint16)
         for i in range(signal.shape[0]):
-            outsyms[i] = make_decision(signal[i], self.coded_symbols)
-        return outsyms
+            outsyms[i], dist[i], idx[i] = make_decision(signal[i], self.coded_symbols)
+        if verbose:
+            return outsyms, dist, idx
+        else:
+            return outsyms
 
     @property
     def symbols(self):
@@ -832,7 +885,7 @@ class SignalQAMGrayCoded(SignalBase):
         outdata  : array_like
             1D array of complex symbol values. Normalised to energy of 1
         """
-        return self._modulate(data, self._encoding, self.M, dtype=self.dtype)
+        return self._modulate(data, self._encoding, self.coded_symbols, dtype=self.dtype)
 
     def demodulate(self, symbols):
         """
@@ -853,7 +906,11 @@ class SignalQAMGrayCoded(SignalBase):
              for i in range(signal.shape[0]):
             outsyms[i] = make_decision(utils.normalise_and_center(signal[i]), self.coded_symbols)       array of booleans representing bits with same number of dimensions as symbols
         """
-        return self._demodulate(symbols, self._encoding)
+        if np.issubdtype(symbols.dtype, np.integer):
+            return self._demodulate(symbols, self._encoding)
+        else:
+            symbs, d, ix = self.make_decision(symbols, verbose=True)
+            return self._demodulate(ix, self._encoding)
 
 class QPSKfromBERT(SignalQAMGrayCoded):
     """
@@ -896,7 +953,7 @@ class QPSKfromBERT(SignalQAMGrayCoded):
         bits = np.zeros((nmodes,Nbits), dtype=bool)
         bits[:,::2] = bitsI
         bits[:,1::2] = bitsQ
-        obj = cls._modulate(bits, encoding, M, dtype=dtype)
+        obj = cls._modulate(bits, encoding, coded_symbols, dtype=dtype)
         obj = obj.view(cls)
         obj._bitmap_mtx = bitmap_mtx
         obj._encoding = encoding
@@ -982,7 +1039,7 @@ class SymbolOnlySignal(SignalQAMGrayCoded):
         signal = self._signal_present(signal)
         outsyms = np.zeros_like(signal)
         for i in range(signal.shape[0]):
-            outsyms[i] = make_decision(signal[i], self.coded_symbols)
+            outsyms[i] = make_decision(signal[i], self.coded_symbols)[0]
         return outsyms
 
     @classmethod
@@ -1010,7 +1067,7 @@ class SymbolOnlySignal(SignalQAMGrayCoded):
         # not sure if this is really necessary, but avoids numerical error issues
         out = np.empty_like(symbs)
         for i in range(symbs.shape[0]):
-            out[i] = make_decision(symbs[i], coded_symbols)
+            out[i] = make_decision(symbs[i], coded_symbols)[0]
         obj = np.asarray(out).view(cls)
         M = coded_symbols.size
         obj._M = M
@@ -1394,7 +1451,6 @@ class SignalWithPilots(SignalBase):
     _inheritattr_ = ["_pilots", "_symbols", "_frame_len", "_pilot_seq_len", "_nframes",
                      "_idx_dat", "_pilot_scale", "_pilot_ins_rat", "_shiftfctrs", "_synctaps",
                      "_idx_pil", "_foe"]
-    _inheritbase_ = ["_fs"]
 
     def __new__(cls, M, frame_len, pilot_seq_len, pilot_ins_rat, nframes=1, pilot_scale=1, Mpilots=4,
                 dataclass=SignalQAMGrayCoded, nmodes=1, dtype=np.complex128,  **kwargs):
@@ -1408,11 +1464,17 @@ class SignalWithPilots(SignalBase):
         out_symbs[:, idx_dat] = symbs
         out_symbs = np.tile(out_symbs, nframes)
         obj = out_symbs.view(cls)
-        obj._fs = symbs.fb
+        if "fb" in kwargs:
+            obj._fb = kwargs.pop("fb")
+        else:
+            obj._fb = symbs.fb
+        if "fs" in kwargs:
+            obj._fs = kwargs.pop("fs")
+        else:
+            obj._fs = symbs.fb
         obj._frame_len = frame_len
         obj._pilot_seq_len = pilot_seq_len
         obj._pilot_ins_rat = pilot_ins_rat
-        obj._nframes = nframes
         obj._symbols = symbs
         obj._pilots = pilots
         obj._idx_dat = idx_dat
@@ -1483,6 +1545,10 @@ class SignalWithPilots(SignalBase):
         nmodes, N = payload.shape
         idx, idx_dat, idx_pil = cls._cal_pilot_idx(frame_len, pilot_seq_len, pilot_ins_rat)
         assert np.count_nonzero(idx_dat) <= N, "data frame is to short for the given frame length"
+        if "M" in kwargs:
+            assert "M" not in payload_kwargs, "M can not be provided as a argument for payload and signal"
+            M = kwargs.pop("M")
+            payload_kwargs["M"] = M
         if np.count_nonzero(idx_dat) > N:
             warnings.warn("Data for frame is shorter than length of data array, truncating")
         if payload_is_frame:
@@ -1491,7 +1557,7 @@ class SignalWithPilots(SignalBase):
         out_symbs = np.empty((nmodes, frame_len), dtype=payload.dtype)
         Ndat = np.count_nonzero(idx_dat)
         if pilots is None:
-            pilots = pilot_class(pilot_kwargs["M"],  np.count_nonzero(idx_pil), nmodes=nmodes, dtype=payload.dtype, **pilot_args, **kwargs) / np.sqrt(
+            pilots = pilot_class(pilot_kwargs["M"],  np.count_nonzero(idx_pil), nmodes=nmodes, dtype=payload.dtype, **kwargs) / np.sqrt(
                 pilot_scale) # this is still not super general
         else:
             assert (nmodes == pilots.shape[0]) or (pilots.shape[0] == 1), "Pilots need to have the same number of modes as data or be one mode"
@@ -1510,11 +1576,11 @@ class SignalWithPilots(SignalBase):
         out_symbs = np.tile(out_symbs, nframes)
         obj = out_symbs.view(cls)
         obj._fs = payload.fb
+        obj._fb = payload.fb
         obj._pilot_scale = pilot_scale
         obj._frame_len = frame_len
         obj._pilot_seq_len = pilot_seq_len
         obj._pilot_ins_rat = pilot_ins_rat
-        obj._nframes = nframes
         obj._symbols = payload[:, :Ndat].copy()
         obj._pilots = pilots
         obj._idx_dat = idx_dat
@@ -1526,6 +1592,10 @@ class SignalWithPilots(SignalBase):
     @property
     def Mpilots(self):
         return self.pilots.M
+
+    @property
+    def M(self):
+        return self._symbols.M
 
     @property
     def pilot_scale(self):
@@ -1549,7 +1619,7 @@ class SignalWithPilots(SignalBase):
 
     @property
     def nframes(self):
-        return self._nframes
+        return self.shape[-1]//(self.os*self.frame_len)
 
     @property
     def frame_len(self):
@@ -1603,17 +1673,21 @@ class SignalWithPilots(SignalBase):
         eqargs.update(kwargs)
         mu = eqargs.pop("mu")
         Ntaps = eqargs.pop("Ntaps")
-        shift_factors, coarse_foe, mode_alignment, wx1 = pilotbased_receiver.frame_sync(self, self.pilot_seq, self.os,
+        shift_factors, coarse_foe, mode_alignment, wx1, sync_bool = pilotbased_receiver.frame_sync(self, self.pilot_seq, self.os,
                                                                               mu=mu,
                                                                               Ntaps=Ntaps,
                                                                               frame_len=self.frame_len,
                                                                               M_pilot=self.Mpilots, **eqargs)
         self[:,:] = self[mode_alignment,:]
+        shift_factors[shift_factors<0] += self.frame_len*self.os # we don't really want negative shift factors
         self.shiftfctrs = shift_factors[mode_alignment]
         self.synctaps = Ntaps
         self._foe = coarse_foe
         if returntaps:
-            return wx1
+            return wx1, sync_bool
+        else:
+            return sync_bool
+
 
     def corr_foe(self, additional_foe = 0):
         foe_off = np.ones(self._foe.shape)*(np.mean(self._foe) + additional_foe)
@@ -1621,41 +1695,63 @@ class SignalWithPilots(SignalBase):
         self[:,:] = phaserec.comp_freq_offset(self, foe_off)
 
 
-    def get_data(self, nframes=1):
-        # TODO fix for syncing correctly
+    def get_data(self, frames=None):
         """
-        Get data payload by removing the pilots. Note this only works on signal sampled at the symbol rate
+        Get data payload by removing the pilots. Note this only works on signal sampled at the 
+        symbol rate and assumes that the signal is already aligned so that it starts with the pilot sequence.
 
         Parameters
         ----------
-        nframes : int, optional
-            number of frames to get data from
+        frames : array_like, optional
+            which frames to get the data for
         Returns
         -------
         outdata : SignalBase object
             the recovered data symbols
         """
-        assert nframes <= self.nframes, "Signal object only contains {} frames can't extract more".format(self.nframes)
-        idx = np.nonzero(np.tile(self._idx_dat, nframes)[:self.shape[-1]])
-        return self.symbols.recreate_from_np_array(self[:, idx[0]].copy()) # better save to make copy here
+        if frames is None:
+            frames = np.arange(self.nframes)
+        else:
+            frames = np.atleast_1d(frames)
+            nframes = np.max(frames)
+            assert nframes <= self.nframes, "Signal object only contains {} frames can't extract more".format(self.nframes)
+        idx = np.hstack([np.nonzero(self._idx_dat)[0] + i * self._frame_len for i in frames] )
+        return self.symbols.recreate_from_np_array(self[:, idx].copy()) # better save to make copy here
 
-    def extract_pilots(self, nframes=1):
-        assert nframes <= self.nframes, "Signal object only contains {} frames can't extract more".format(self.nframes)
-        idx = np.nonzero(np.tile(self._idx_dat, nframes)[:self.shape[-1]])
-        idx = np.tile(np.bitwise_not(self._idx_dat), nframes)[:self.shape[-1]]
+    def extract_pilots(self, frames=None):
+        """
+        Get pilots. Note this only works on signal sampled at the symbol rate and assumes that the signal is already
+        aligned so that it starts with the pilot sequence.
+
+        Parameters
+        ----------
+        frames : array_like, optional
+            which frames to get the pilots for (default: None get for all frames in signal)
+        Returns
+        -------
+        outdata : SignalBase object
+            the recovered data symbols
+        """        
+        if frames is None:
+            frames = np.arange(self.nframes)
+        else:
+            frames = np.atleast_1d(frames)
+            nframes = np.max(frames)
+            assert nframes <= self.nframes, "Signal object only contains {} frames can't extract more".format(self.nframes)
+        idx = np.hstack([np.nonzero(self._idx_pil)[0] + i * self._frame_len for i in frames] )
         return self.pilots.recreate_from_np_array(self[:, idx])
 
     def __getattr__(self, attr):
         return getattr(self._symbols, attr)
 
-    def cal_ser(self, nframes=1, synced=True, signal_rx=None, verbose=False):
+    def cal_ser(self, frames=None, synced=True, signal_rx=None, verbose=False):
         """
         Calculate Symbol Error Rate on the data payload.
 
         Parameters
         ----------
-        nframes : int, optional
-            how many frames to calculate SER for
+        frames : array_like, optional
+            which frames to calculate the ser for (default: None estimate for all frames in signal)
         synced : bool, optional
             if the signal is synced or not by default this is true for pilot signals, however if no phase tracker is run
             it is possible that modes are rotated in the IQ-plane, which would result in errors
@@ -1670,17 +1766,17 @@ class SignalWithPilots(SignalBase):
             SER per mode
         """
         if signal_rx is None:
-            signal_rx = self.get_data(nframes)
+            signal_rx = self.get_data(frames)
         return signal_rx.cal_ser(synced=synced, verbose=verbose)
 
-    def cal_ber(self, nframes=1, synced=True, signal_rx=None, verbose=False):
+    def cal_ber(self, frames=None, synced=True, signal_rx=None, verbose=False):
         """
         Calculate Bit Error Rate on the data payload.
 
         Parameters
         ----------
-        nframes : int, optional
-            how many frames to calculate BER for
+        frames : array_like, optional
+            which frames to calculate the ber for (default: None estimate for all frames in signal)
         synced : bool, optional
             if the signal is synced or not by default this is true for pilot signals, however if no phase tracker is run
             it is possible that modes are rotated in the IQ-plane, which would result in errors
@@ -1695,17 +1791,17 @@ class SignalWithPilots(SignalBase):
             BER per mode
         """
         if signal_rx is None:
-            signal_rx = self.get_data(nframes=nframes)
+            signal_rx = self.get_data(frames=frames)
         return signal_rx.cal_ber(synced=synced, verbose=verbose)
 
-    def cal_evm(self, nframes=1, synced=True, signal_rx=None, blind=False):
+    def cal_evm(self, frames=None, synced=True, signal_rx=None, blind=False):
         """
         Calculate Error Vector Magnitude on the data payload.
 
         Parameters
         ----------
-        nframes : int, optional
-            how many frames to calculate EVM for
+        frames : array_like, optional
+            which frames to calculate the evm for (default: None estimate for all frames in signal)
         synced : bool, optional
             if the signal is synced or not by default this is true for pilot signals, however if no phase tracker is run
             it is possible that modes are rotated in the IQ-plane, which would result in errors
@@ -1721,17 +1817,17 @@ class SignalWithPilots(SignalBase):
             EVM per mode
         """
         if signal_rx is None:
-            signal_rx = self.get_data(nframes=nframes)
+            signal_rx = self.get_data(frames=frames)
         return signal_rx.cal_evm(synced=synced, blind=blind)
 
-    def cal_gmi(self, nframes=1, synced=True, snr=None, signal_rx=None, use_pilot_snr=False):
+    def cal_gmi(self, frames=None, synced=True, snr=None, signal_rx=None, use_pilot_snr=False):
         """
         Calculate Generalised Mutual Information on the data payload
 
         Parameters
         ----------
-        nframes : int, optional
-            how many frames to calculate GMI for
+        frames : array_like, optional
+            which frames to calculate the gmi for (default: None estimate for all frames in signal)
         synced : bool, optional
             if the signal is synced or not by default this is true for pilot signals, however if no phase tracker is run
             it is possible that modes are rotated in the IQ-plane, which would result in errors
@@ -1750,20 +1846,22 @@ class SignalWithPilots(SignalBase):
             generalized mutual information per transmitted bit per mode
         """
         assert not (use_pilot_snr and snr is not None), "use_pilot_snr must not be True if snr is not None"
+        if frames is None:
+            frames = np.arange(self.nframes)
         if signal_rx is None:
-            signal_rx = self.get_data(nframes=nframes)
+            signal_rx = self.get_data(frames=frames)
         if use_pilot_snr:
             snr = self.est_snr(use_pilots=True)
         return signal_rx.cal_gmi(synced=synced, snr=snr)
 
-    def est_snr(self, nframes=1, synced=True, signal_rx=None, symbols_tx=None, use_pilots=False):
+    def est_snr(self, frames=None, synced=True, signal_rx=None, symbols_tx=None, use_pilots=False):
         """
         Estimate SNR using known symbols.
 
         Parameters
         ----------
-        nframes : int, optional
-            how many frames to estimate SNR for
+        frames : array_like or None, optional
+            which frames to estimate SNR for (default: None estimate for all frames in signal)
         synced : bool, optional
             if the signal is synced or not by default this is true for pilot signals, however if no phase tracker is run
             it is possible that modes are rotated in the IQ-plane, which would result in errors
@@ -1781,12 +1879,12 @@ class SignalWithPilots(SignalBase):
         """
         if signal_rx is None:
             if use_pilots:
-                signal_rx = self.extract_pilots(nframes=nframes)
+                signal_rx = self.extract_pilots(frames=frames).copy() # needed for pythran
             else:
-                signal_rx = self.get_data(nframes=nframes)
+                signal_rx = self.get_data(frames=frames).copy() #needed for pythran
         return signal_rx.est_snr(synced=synced, symbols_tx=symbols_tx)
-
+    
     def recreate_from_np_array(self, arr, **kwargs):
-        nframes = arr.shape[-1]//self.frame_len
-        assert nframes > 0, "numpy array needs to be at least frame_len long"
-        return super().recreate_from_np_array(arr, nframes=nframes, **kwargs)
+        out =  super().recreate_from_np_array(arr, **kwargs)
+        assert out.nframes > 0, "input array needs to be at least frame_len * oversampling long"
+        return out

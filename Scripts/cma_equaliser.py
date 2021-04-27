@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pylab as plt
 from qampy import equalisation, signals, impairments, helpers, phaserec
+import sys
+from timeit import default_timer as timer
 
 fb = 40.e9
 os = 2
@@ -12,30 +14,49 @@ theta2 = np.pi/2.1
 t_pmd = 75e-12
 M = 4
 ntaps=40
-snr =  14
+snr =  5
 
-sig = signals.SignalQAMGrayCoded(M, N, fb=fb, nmodes=2, dtype=np.complex64)
+sig = signals.SignalQAMGrayCoded(M, N, fb=fb, nmodes=2, dtype=np.complex128)
 S = sig.resample(fs, renormalise=True, beta=0.1)
-S = impairments.apply_phase_noise(S, 100e3)
+#S = impairments.apply_phase_noise(S, 100e3)
 S = impairments.change_snr(S, snr)
 
-SS = impairments.apply_PMD(S, theta, t_pmd)
-wxy, err = equalisation.equalise_signal(SS, mu, Ntaps=ntaps, TrSyms=None, method="cma", adaptive_step=True)
-wxy_m, err_m = equalisation.equalise_signal(SS, mu,  TrSyms=None,Ntaps=ntaps, method="mcma", adaptive_step=True)
+SS = impairments.apply_PMD(S, theta2, t_pmd)
+wxy_m, err_m = equalisation.equalise_signal(SS, mu,  TrSyms=None, Ntaps=ntaps, method="mcma", adaptive_step=True)
+
 E = equalisation.apply_filter(SS,  wxy)
 E_m = equalisation.apply_filter(SS, wxy_m)
 E = helpers.normalise_and_center(E)
 E_m = helpers.normalise_and_center(E_m)
-E, ph = phaserec.viterbiviterbi(E, 11)
-E_m, ph = phaserec.viterbiviterbi(E_m, 11)
+#E, ph = phaserec.viterbiviterbi(E, 11)
+#E_m, ph = phaserec.viterbiviterbi(E_m, 11)
 E = helpers.dump_edges(E, 20)
 E_m = helpers.dump_edges(E_m, 20)
 
 
 # note that because of the noise we get sync failures doing SER
-gmi = E.cal_gmi()[0]
-gmi_m = E_m.cal_gmi()[0]
-gmi0 = S[:, ::2].cal_gmi()[0]
+#ser = E.cal_ser()
+#ser_m = E_m.cal_ser()
+#print(E.cal_gmi())
+#print(E_m.cal_gmi())
+sys.exit()
+ser0 = S[:, ::2].cal_ser()
+plt.figure()
+plt.subplot(131)
+plt.title('Recovered CMA')
+plt.plot(E[0].real, E[0].imag, 'ro', label=r"$SER_x=%.1f\%%$"%(100*ser[0]))
+plt.plot(E[1].real, E[1].imag, 'go' ,label=r"$SER=%.1f\%%$"%(ser[1]*100))
+plt.legend()
+plt.subplot(132)
+plt.title('Recovered MCMA')
+plt.plot(E_m[0].real, E_m[0].imag, 'ro', label=r"$SER_x=%.1f\%%$"%(100*ser_m[0]))
+plt.plot(E_m[1].real, E_m[1].imag, 'go' ,label=r"$SER_y=%.1f\%%$"%(ser_m[1]*100))
+plt.legend()
+plt.subplot(133)
+plt.title('Original')
+plt.plot(S[0,::2].real, S[0,::2].imag, 'ro', label=r"$SER_x=%.1f\%%$"%(100*ser0[0]))
+plt.plot(S[1,::2].real, S[1,::2].imag, 'go', label=r"$SER_y=%.1f\%%$"%(100*ser0[1]))
+plt.legend()
 
 plt.figure()
 plt.subplot(221)
