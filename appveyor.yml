@@ -1,3 +1,7 @@
+skip_non_tags: true # only build on new tags
+
+image:
+  - Visual Studio 2019
 environment:
 
   matrix:
@@ -7,25 +11,13 @@ environment:
     # The list here is complete (excluding Python 2.6, which
     # isn't covered by this document) at the time of writing.
 
-    - PYTHON: "C:\\Python36"
-    - PYTHON: "C:\\Python37"
-    - PYTHON: "C:\\Python38"
-    - PYTHON: "C:\\Python36-x64"
     - PYTHON: "C:\\Python37-x64"
     - PYTHON: "C:\\Python38-x64"
 
 install:
   # We need wheel installed to build wheels
   - "%PYTHON%\\python.exe -m pip install wheel"
-  - "%PYTHON%\\python.exe -m pip install pythran"
-  - "%PYTHON%\\python.exe -m pip install pythran-openblas"
-  # currently pythran build fails with numpy 1.20
-  - "%PYTHON%\\python.exe -m pip install numpy==1.19"
-  - "%PYTHON%\\python.exe -m pip install scipy"
-  - cmd: echo [compiler] > %HOMEDRIVE%%HOMEPATH%/.pythranrc."
-  - cmd: echo CC=clang-cl.exe >> %HOMEDRIVE%%HOMEPATH%/.pythranrc.
-  - cmd: echo CXX=clang-cl.exe >> %HOMEDRIVE%%HOMEPATH%/.pythranrc.
-  - cmd: echo blas=pythran-openblas >> %HOMEDRIVE%%HOMEPATH%/.pythranrc.
+  - "%PYTHON%\\python.exe -m pip install -r requirements.txt"
 
 build: off
 
@@ -61,10 +53,10 @@ deploy:
   description: 'QAMpy release'
   provider: GitHub
   auth_token:
-    secure: 0fG/Gn1ePDpYJD5FifOSndvrDAYqEtZLbaVksQUlSzor2NGtTcErEanFMf95lGsz # your encrypted token from GitHub
+    secure: zlEp5cUcCTXE8JuaWa+8XfvFxsOnOyDw4MP61AQrpG0Ui5VXnlnpP5ne0WAtVaXp
   artifact: wheelpkg # upload all wheel packages to release assets
   draft: true
   prerelease: false
   on:
-    #branch: master                 # release from master branch only
+    branch: master                 # release from master branch only
     APPVEYOR_REPO_TAG: true        # deploy on tag push only

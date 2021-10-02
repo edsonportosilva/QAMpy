@@ -19,40 +19,59 @@
 #TODO: update documentation with all references
 
 """
-    Equalisa tion functions the equaliser update functions provided are:
+Adaptive equaliser functions
+----------------------------
 
-No decision based:
------------------
-Constant Modulus Algorithm (CMA) after _[1]
-Radius Directed Error (RDE) after _[1]
-Modfied Constant Modulus Algorithm (MCMA) after _[2]
-Modified Radius Directed Error (MRDA) after _[3]
-Decision-directed LMS (DD) after _[1]
+Functions for adaptive equalisation and filer application.
 
-Decision Directed
------------------
-Symbol Based Decision (SBD) after _[3]
-Modified Decision Directed Modulus Algorithm (MDDMA) after _[4]
+The following adaptive equaliser methods are provided:
 
-Adaptive Step Size Algorithms
------------------------------
-based on the step size adoption in _[5]  it is possible to use an adaptive step for all equalisers using the adaptive_stepsize keyword parameter
+**Non-decision based:**
 
-Real Valued
------------
-There are also real-valued CMA and DD as well as a data-aided DD algorithm
+- Constant Modulus Algorithm (CMA) after [1]_
+- Radius Directed Error (RDE) [1]_
+- Modfied Constant Modulus Algorithm (MCMA) after  [2]_
+- Modified Radius Directed Error (MRDA) after [3]_
+- Signed based CMA [1]_
 
-Data aided
-----------
+**Decision based:**
+
+- Symbol Based Decision (SBD) after [3]_
+- Modified Decision Directed Modulus Algorithm (MDDMA) after [4]_
+- Decision-directed  LMS after [1]_
+
+**Adaptive Step Size Algorithms:**
+
+In addition algorithms can use a adaptive stepsize  based on the step size adoption in [5]_
+It is possible to use an adaptive step for all equalisers using the adaptive_stepsize keyword parameter
+
+**Real-valued equalisers:**
+
+A subset of the equalisers can be run as real-valued equalisers.
+
+**Data aided:**
+
 In addition there is a data aided SBD algorithm and real_valued DD algorithm
+
+**The available methods are specified in the following sets**
+
+.. autodata:: DATA_AIDED
+
+.. autodata:: TRAINING_FCTS
+
+.. autodata:: NONDECISION_BASED
+
+.. autodata:: DECISION_BASED
+
+.. autodata:: REAL_VALUED
 
 References
 ----------
-...[1] M. S. Faruk and S. J. Savory, ‘Digital Signal Processing for Coherent Transceivers Employing Multilevel Formats’, Journal of Lightwave Technology, vol. 35, no. 5, pp. 1125–1141, Mar. 2017, doi: 10.1109/JLT.2017.2662319.
-...[2] Oh, K. N., & Chin, Y. O. (1995). Modified constant modulus algorithm: blind equalization and carrier phase recovery algorithm. Proceedings IEEE International Conference on Communications ICC ’95, 1, 498–502. http://doi.org/10.1109/ICC.1995.525219
-...[3] Filho, M., Silva, M. T. M., & Miranda, M. D. (2008). A FAMILY OF ALGORITHMS FOR BLIND EQUALIZATION OF QAM SIGNALS. In 2011 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) (pp. 6–9).
-...[8] Fernandes, C. A. R., Favier, G., & Mota, J. C. M. (2007). Decision directed adaptive blind equalization based on the constant modulus algorithm. Signal, Image and Video Processing, 1(4), 333–346. http://doi.org/10.1007/s11760-007-0027-2
-...[5] D. Ashmawy, K. Banovic, E. Abdel-Raheem, M. Youssif, H. Mansour, and M. Mohanna, “Joint MCMA and DD blind equalization algorithm with variable-step size,” Proc. 2009 IEEE Int. Conf. Electro/Information Technol. EIT 2009, no. 1, pp. 174–177, 2009.
+.. [1] Faruk, M.S. and Savory, J.S. "Digital Signal Processing for Coherent Transceivers Employing Multilevel Formats", Journal of Lightwave Technology, vol. 35, no. 5, pp. 1125–1141, Mar. 2017, doi: 10.1109/JLT.2017.2662319.
+.. [2] Oh, K. N., & Chin, Y. O. "Modified constant modulus algorithm: blind equalization and carrier phase recovery algorithm". Proceedings IEEE International Conference on Communications ICC ’95, 1, 498–502 (1995) http://doi.org/10.1109/ICC.1995.525219
+.. [3] Filho, M., Silva, M. T. M., & Miranda, M. D. "A FAMILY OF ALGORITHMS FOR BLIND EQUALIZATION OF QAM SIGNALS". In 2011 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) (pp. 6–9) (2011).
+.. [4] Fernandes, C. A. R., Favier, G., & Mota, J. C. M. "Decision directed adaptive blind equalization based on the constant modulus algorithm. Signal, Image and Video Processing", 1(4), 333–346. (2007) http://doi.org/10.1007/s11760-007-0027-2
+.. [5] Ashmawy, D., Banovic, K.,  Abdel-Raheem, E., Youssif, M., Mansour, H., and  Mohanna, M. "Joint MCMA and DD blind equalization algorithm with variable-step size," Proc. 2009 IEEE Int. Conf. Electro/Information Technol. EIT 2009, no. 1, pp. 174–177, 2009.
 
 """
 
@@ -64,16 +83,26 @@ from qampy.theory import cal_symbols_qam, cal_scaling_factor_qam
 from qampy.core.segmentaxis import segment_axis
 from qampy.core.equalisation import pythran_equalisation
 
-DECISION_BASED = ["sbd", "mddma", "dd", "sbd_data", "dd_real", "dd_data_real"]
-NONDECISION_BASED = ["cma", "mcma", "rde", "mrde", "cma_real"]
-REAL_VALUED = ["cma_real", "dd_real", "dd_data_real"]
-DATA_AIDED = ["dd_data_real", "sbd_data"]
+#: Decision based equalisation methods
+DECISION_BASED = ("sbd", "mddma", "dd", "sbd_data", "dd_real", "dd_data_real")
 
+#: Non-decision based equalisation methods
+NONDECISION_BASED = ("cma", "mcma", "rde", "mrde", "cma_real", "sgncma_real", "sgncma")
+
+#: Real-valued equalisation methods
+REAL_VALUED = ("cma_real", "dd_real", "dd_data_real" , "sgncma_real")
+
+#: Data-aided equalisation methods
+DATA_AIDED = ("dd_data_real", "sbd_data")
+
+#: All available adaptive equaliser methods
 TRAINING_FCTS =  DECISION_BASED + NONDECISION_BASED
 
 def generate_symbols_for_eq(method, M, dtype):
     #TODO: investigate if it makes sense to include the calculations of constants inside the methods
     if method in ["cma"]:
+        return np.atleast_2d(_cal_Rconstant(M) + 0j).astype(dtype)
+    if method in ["sgncma"]:
         return np.atleast_2d(_cal_Rconstant(M) + 0j).astype(dtype)
     if method in ["mcma"]:
         return np.atleast_2d(_cal_Rconstant_complex(M)).astype(dtype)
@@ -92,6 +121,8 @@ def generate_symbols_for_eq(method, M, dtype):
     if method in ["dd"]:
         symbols = np.atleast_2d(cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))).astype(dtype)
         return symbols
+    if method in ["sgncma_real"]:
+        return np.repeat([np.atleast_1d(_cal_Rconstant_complex(M).real.astype(dtype))], 2, axis=0)
     if method in ["cma_real"]:
         return np.repeat([np.atleast_1d(_cal_Rconstant_complex(M).real.astype(dtype))], 2, axis=0)
     if method in ["dd_real"]:

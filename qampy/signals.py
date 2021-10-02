@@ -16,6 +16,24 @@
 #
 # Copyright 2018 Jochen Schröder, Mikael Mazur
 
+"""
+signals
+-------
+
+QAMPy signal objects for the basic API. The signal objects are numpy ndarray
+subclasses that contain additional attributes and modules that define signals, such as sampling-
+and symbol-rate, the bits for generating the object etc..
+
+In general signal objects can be manipulated like numpy arrays, and most operations preserve
+signal objects, therefore one should check if the returned objects are signal objects.
+
+Warnings
+--------
+Some numpy functions preserve the subclass object type but do not pass the attributes and methods, np.concatenate
+does this.
+
+"""
+
 from __future__ import division
 import numpy as np
 import abc
@@ -30,7 +48,6 @@ from qampy.core.prbs import make_prbs_extXOR
 from qampy.core.signal_quality import make_decision, generate_bitmapping_mtx,\
     estimate_snr, soft_l_value_demapper_minmax, soft_l_value_demapper, cal_mi
 from qampy.core.io import save_signal
-
 
 
 class RandomBits(np.ndarray):
@@ -1067,7 +1084,7 @@ class SymbolOnlySignal(SignalQAMGrayCoded):
         # not sure if this is really necessary, but avoids numerical error issues
         out = np.empty_like(symbs)
         for i in range(symbs.shape[0]):
-            out[i] = make_decision(symbs[i], coded_symbols)[0]
+            out[i] = make_decision(np.ascontiguousarray(symbs[i]), coded_symbols)[0]
         obj = np.asarray(out).view(cls)
         M = coded_symbols.size
         obj._M = M

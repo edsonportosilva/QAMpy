@@ -2,9 +2,11 @@
 
 [![DOI](https://zenodo.org/badge/124787512.svg)](https://zenodo.org/badge/latestdoi/124787512)
 
+<!-- start description -->
 QAMPy is a dsp chain for simulation and equalisation of signals from optical communication transmissions.
 It is written in Python, but has been designed for high performance and most performance critical 
-functions are writen in Cython and run at C-speeds. 
+functions are written with [pythran](https://github.com/serge-sans-paille/pythran) to run at speed of compiled c or c++
+code.
 
 QAMPy can equalise BPSK, QPSK and higher-order QAM signals as well as simulate signal impairments. 
 
@@ -17,6 +19,9 @@ For signal equalisation it contains:
  * several decision directed equaliser implementations 
  * phase recovery using blind phase search (BPS) and ViterbiViterbi algorithms
  * frequency offset compensation
+ * a complete set of pilot-based equalisation routines, including frame synchronization, frequency offset 
+estimation, adaptive equalisation and phase recovery
+ * additional data-aided and real-valued adaptive equaliser routines
  
 ## Impairments
  
@@ -26,6 +31,7 @@ It can simulate the following impairments:
  * SNR
  * PMD
  * phase noise
+ * transceiver impairments such as modulator nonlinearity, DAC frequency response and limited ENOB
  
 ## Signal Quality Metrics
 
@@ -37,60 +43,20 @@ performance metrics:
  * Error Vector Magnitude (EVM)
  * Generalized Mututal Information (GMI)
  
+<!-- end description -->
+
 ## Documentation
 
 We put a strong focus on documenting our functions and most public functions should be well documented. 
-Use help in jupyter notebook to excess the documenation.
+Use help in jupyter notebook to excess the documenation. 
+
+You can access documentation with an extensive API at our [website](http://qampy.org).
 
 For examples of how to use QAMpy see the Scripts and the Notebooks subdirectory, note that not all files are up-to-date
 You should in particular look at the *cma_equaliser.py* and *64_qam_equalisation.py* files. 
 
 ## Installation
-
-QAMpy is developed on Python 3. As Python 2 is now end of life we will only support Python 3.
-
-QAMPy depends on the following python modules *numpy*, *scipy*, *pythran*, *bitarray*. You will also need to have a 
-working c/c++ compiler with open-mp support installed to compile the pythran modules, on linux both gcc or clang work, for
-windows see the instructions below.
-
-We provide binaries for the latest 0.3 release for Windows and python 3.5-3.8. You can find them under github releases and can 
-install them with `pip [filename]`. Note that the builds assume a processor with `sse2` and `avx` extensions, however this should 
-be any recent CPU from Intel or AMD. 
-
-## Building 
-
-On Linux we recommend building to get the best performance, see the instructions below. Building on Windows is also possible 
-but typically a bit more complicated.
-
-### Linux
-
-On Linux installation works fine using the usual `python3 setup.py build` and `python3 setup.py install`.
-
-### Windows
-
-On Windows, you will need to install clang, and pythran version 0.9.6 or newer. 
-and pythran-openblas for blas support. Before compiling install the following software
-1. Install the latest clang release from the [llvm website](https://clang.llvm.org/get_started.html), 
-2. Install pythran version 0.9.7 or newer with `pip install pythran`.
-3. Install pythran-openblas with `pip install pythran-openblas`.
-   __Note:__ Currently there are no python-3.8 and 3.9 packages on pypi. You can instead install the packages we provide in our 
-   [fork](https://github.com/ChalmersPhotonicsLab/pythran-openblas). You can either download the build whl files find under the lates release or 
-   install with `pip install https://github.com/ChalmersPhotonicsLab/pythran-openblas/releases/download/0.3.6/pythran_openblas-0.3.6-cp38-cp38-win_amd64.whl` for Python-3.8
-   or `pip install https://github.com/ChalmersPhotonicsLab/pythran-openblas/releases/download/0.3.6/pythran_openblas-0.3.6-cp39-cp39-win_amd64.whl` for Python-3.9
-4. Create a .pythranrc file in your home directory (typically this is C:\Users\<username>). Note that to create a file 
-from file explorer you should name it `.pythranrc.` (there is a trailing dot, otherwise windows things .pythranrc is the fileexstension).
-The file should contain (see the pythran documentation for more details):
-```
-[compiler]
-CC=clang-cl.exe
-CXX=clang-cl.exe
-blas=pythran-openblas
-```
-
-To compile use the same instructions as on linux. 
-
-More detailed instructions can be found on the [wiki](https://github.com/ChalmersPhotonicsLab/QAMpy/wiki/Installation).
-
+Installation instructions can be found here [here](http://qampy.org/installation/index.html#).
 
 ## Status
 
