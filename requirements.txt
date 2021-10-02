@@ -1,5 +1,4 @@
-bitarray
-numpy >=1.19
-scipy >=  1.5
-cython
-bokeh
+pythran>=0.9.10
+numpy>=1.20
+scipy>=1.6.0
+sphinx>=4.0.0
