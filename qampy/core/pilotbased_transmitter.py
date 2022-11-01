@@ -116,10 +116,7 @@ def gen_dataframe_with_phasepilots_hybridmodulation(M=(128,256),mod_ratio = (1,1
 
     # Modulators to generate hybrid QAM
     pilot_modualtor = modulation.QAMModulator(4)
-    data_modulators = []
-    for mod in M:
-        data_modulators.append(modulation.QAMModulator(mod))
-
+    data_modulators = [modulation.QAMModulator(mod) for mod in M]
     # Arrange to have same average power of both
     N_data_symbs = int(N_data_frames * (pilot_ins_ratio - 1))
     norm_factors = np.zeros(len(M))

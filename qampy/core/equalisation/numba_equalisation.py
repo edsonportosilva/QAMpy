@@ -80,8 +80,7 @@ def partition_value(signal, partitions, codebook):
     index = 0
     while index < len(partitions) and signal > partitions[index]:
         index += 1
-    quanta = codebook[index]
-    return quanta
+    return codebook[index]
 
 @numba.jit(nopython=True)
 def sum(x):
@@ -350,12 +349,10 @@ def ErrorFctSCA(R):
     def sca_fct(Xest):
         if abs(Xest.real) >= abs(Xest.imag):
             A = 1
-            if abs(Xest.real) == abs(Xest.imag):
-                B = 1
-            else:
-                B = 0
+            B = 1 if abs(Xest.real) == abs(Xest.imag) else 0
         else:
             A = 0
             B = 1
         return 16*Xest.real*(R**2 - Xest.real**2)*A + 1.j*16*Xest.imag*(R**2 - Xest.imag**2)*B
+
     return sca_fct

@@ -65,8 +65,14 @@ def ber_vs_evm_qam(evm_dB, M):
     """
     L = np.sqrt(M)
     evm = dB2lin(evm_dB)
-    ber = 2 * (1-1/L) / np.log2(L) * q_function(np.sqrt(3 * np.log2(L) / (L ** 2 - 1) * (2 / (evm * np.log2(M)))))
-    return ber
+    return (
+        2
+        * (1 - 1 / L)
+        / np.log2(L)
+        * q_function(
+            np.sqrt(3 * np.log2(L) / (L**2 - 1) * (2 / (evm * np.log2(M))))
+        )
+    )
 
 
 def ber_vs_es_over_n0_qam(snr, M):
@@ -93,8 +99,14 @@ def ber_vs_es_over_n0_qam(snr, M):
     ...[3] Shafik, R. (2006). On the extended relationships among EVM, BER and SNR as performance metrics. In Conference on Electrical and Computer Engineering (p. 408). Retrieved from http://ieeexplore.ieee.org/xpls/abs_all.jsp?arnumber=4178493
     """
     L = np.sqrt(M)
-    ber = 2 * (1-1/L) / np.log2(L) * q_function(np.sqrt(3 * np.log2(L) / (L ** 2 - 1) * (2 * snr / np.log2(M))))
-    return ber
+    return (
+        2
+        * (1 - 1 / L)
+        / np.log2(L)
+        * q_function(
+            np.sqrt(3 * np.log2(L) / (L**2 - 1) * (2 * snr / np.log2(M)))
+        )
+    )
 
 def ser_vs_es_over_n0_psk(snr, M):
     """Calculate the symbol error rate (SER) of an M-PSK signal as a function
@@ -123,11 +135,9 @@ def cal_scaling_factor_qam(M):
     """
     bits = np.log2(M)
     if not bits % 2:
-        scale = 2 / 3 * (M - 1)
-    else:
-        symbols = cal_symbols_qam(M)
-        scale = (abs(symbols)**2).mean()
-    return scale
+        return 2 / 3 * (M - 1)
+    symbols = cal_symbols_qam(M)
+    return (abs(symbols)**2).mean()
 
 def cal_symbols_square_qam(M):
     """
@@ -195,9 +205,10 @@ def cal_ps_probablts(symbols, nu):
 
     symbs = np.unique(symbols.real)
     px = np.zeros(symbs.shape[0])
-    div_factor = 0
-    for ind in range(px.shape[0]):
-        div_factor += np.exp(-nu * np.abs(symbs[ind]) ** 2)
+    div_factor = sum(
+        np.exp(-nu * np.abs(symbs[ind]) ** 2) for ind in range(px.shape[0])
+    )
+
     for ind in range(px.shape[0]):
         px[ind] = np.exp(-nu * np.abs(symbs[ind]) ** 2) / div_factor
     return symbs, px

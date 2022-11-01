@@ -153,7 +153,7 @@ def simulate_transmission(sig, snr=None, freq_off=None, lwdth=None, dgd=None, th
         signal with transmission impairments applied
     """
     if roll_frame_sync:
-        if not (sig.nframes > 1):
+        if sig.nframes <= 1:
             warnings.warn("Only single frame present, discontinuity introduced")
         sig = np.roll(sig,sig.pilots.shape[1],axis=-1)
     if lwdth is not None:

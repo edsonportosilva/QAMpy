@@ -66,17 +66,14 @@ def bps(E, testangles, symbols, N):
     """
     L = E.shape[0]
     p = testangles.shape[0]
-    assert p == 0 or p == L, "p must be either 0 or the length of the input signal"
+    assert p in [0, L], "p must be either 0 or the length of the input signal"
     M = symbols.shape[0]
     Ntestangles = testangles.shape[1]
     comp = np.exp(1j*testangles)
     dists = np.zeros((L, Ntestangles), dtype=testangles.dtype)+100.
     #omp parallel for
     for i in range(L):
-        if p > 1:
-            ph_idx = i
-        else:
-            ph_idx = 0
+        ph_idx = i if p > 1 else 0
         for j in range(Ntestangles):
             tmp = E[i] * comp[ph_idx, j]
             s, dtmp = det_symbol(tmp, symbols)
@@ -293,9 +290,17 @@ def cal_mi_mc(noise, symbols, N0):
     #omp parallel for reduction(+:mi_out) collapse(2)
     for i in range(M):
         for l in range(L):
-            tmp = 0
-            for j in range(M):
-                tmp += np.exp(-(abs(symbols[i] - symbols[j])**2 + 2*np.real((symbols[i]-symbols[j])*noise[l]))/N0)
+            tmp = sum(
+                np.exp(
+                    -(
+                        abs(symbols[i] - symbols[j]) ** 2
+                        + 2 * np.real((symbols[i] - symbols[j]) * noise[l])
+                    )
+                    / N0
+                )
+                for j in range(M)
+            )
+
             mi_out += np.log2(tmp)
     return np.log2(M) - mi_out/M/L
 
@@ -306,8 +311,13 @@ def cal_mi_mc_fast(sig, sig_tx, symbols, N0):
     mi_out = 0
     #omp parallel for reduction(+:mi_out)
     for l in range(L):
-        tmp = 0
-        for j in range(M):
-            tmp += np.exp(-(abs(sig[l]-symbols[j])**2 - abs(sig[l]-sig_tx[l])**2)/N0)
+        tmp = sum(
+            np.exp(
+                -(abs(sig[l] - symbols[j]) ** 2 - abs(sig[l] - sig_tx[l]) ** 2)
+                / N0
+            )
+            for j in range(M)
+        )
+
         mi_out += np.log2(tmp)
     return np.log2(M) - mi_out/L

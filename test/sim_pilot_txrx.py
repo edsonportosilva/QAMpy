@@ -104,8 +104,7 @@ def pre_filter(signal, bw, os,center_freq = 0):
     h = np.zeros(N, dtype=np.float64)
     # h[int(N/(bw/2)):-int(N/(bw/2))] = 1
     h[idx] = 1
-    s = np.fft.ifftshift(np.fft.ifft(np.fft.fft(signal) * h))
-    return s
+    return np.fft.ifftshift(np.fft.ifft(np.fft.fft(signal) * h))
 
 # Standard function to test DSP
 def sim_pilot_txrx(sig_snr, Ntaps=45, beta=0.1, M=256, freq_off = None,cpe_avg=3,

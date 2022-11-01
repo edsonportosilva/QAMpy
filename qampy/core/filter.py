@@ -43,10 +43,7 @@ def pre_filter(signal, bw):
     h = np.zeros(N, dtype=sig.real.dtype)
     h[:,int(N[1]/(bw/2)):-int(N[1]/(bw/2))] = 1
     s = scifft.ifft(scifft.ifftshift(scifft.fftshift(scifft.fft(sig, axis=-1), axes=-1)*h, axes=-1), axis=-1)
-    if signal.ndim < 2:
-        return s.flatten()
-    else:
-        return s
+    return s.flatten() if signal.ndim < 2 else s
 
 def pre_filter_wdm(signal, bw, os,center_freq = 0):
     """
@@ -78,10 +75,8 @@ def pre_filter_wdm(signal, bw, os,center_freq = 0):
     # Create filter window
     idx = np.where(abs(freq_axis-center_freq) < bw / 2)
     h[idx] = 1
-    
-    # Filter and output
-    s = (scifft.ifft(scifft.fft(signal) * h))
-    return s
+
+    return (scifft.ifft(scifft.fft(signal) * h))
 
 def filter_signal(signal, fs, cutoff, ftype="bessel", order=2, analog=False):
     """
@@ -141,10 +136,7 @@ def filter_signal(signal, fs, cutoff, ftype="bessel", order=2, analog=False):
             sig2[i] = yo.astype(sig.dtype)
     else:
         sig2 = scisig.sosfilt(system.astype(sig.dtype), sig, axis=-1)
-    if signal.ndim == 1:
-        return sig2.flatten()
-    else:
-        return sig2
+    return sig2.flatten() if signal.ndim == 1 else sig2
 
 def _rrcos_pulseshaping_freq(sig, fs, T, beta):
     """
@@ -171,8 +163,7 @@ def _rrcos_pulseshaping_freq(sig, fs, T, beta):
     nyq_fil = rrcos_freq(f, beta, T)
     nyq_fil /= nyq_fil.max()
     sig_f = scifft.fft(sig)
-    sig_out = scifft.ifft(sig_f*nyq_fil)
-    return sig_out
+    return scifft.ifft(sig_f*nyq_fil)
 
 def rrcos_pulseshaping(sig, fs, T, beta, taps=1001):
     """

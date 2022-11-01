@@ -42,14 +42,11 @@ def comp_IQ_inbalance(signal):
     mon_signal = np.sum(I*Q)/np.sum(I**2)
     phase_inbalance = np.arcsin(-mon_signal)
     Q_balcd = (Q + np.sin(phase_inbalance)*I)/np.cos(phase_inbalance)
-    
+
     # Amplidue imbalance
     amp_inbalance = np.sum(I**2)/np.sum(Q_balcd**2)
 
-    # Build output
-    comp_singal = I + 1.j * (Q_balcd * np.sqrt(amp_inbalance))
-    
-    return comp_singal
+    return I + 1.j * (Q_balcd * np.sqrt(amp_inbalance))
 
 def comp_rf_delay(signal, delay, sampling_rate=50e9 ):
     """
@@ -76,16 +73,13 @@ def comp_rf_delay(signal, delay, sampling_rate=50e9 ):
     sig = np.atleast_2d(signal)
     # Frequency base vector
     freqVector = np.fft.fftfreq(sig.shape[1], sampling_rate/2)
-    
+
     # Phase-delayed version
     sig_out = np.empty_like(sig)
     sig_out = np.fft.ifft(np.exp(-1j*2*np.pi*delay*freqVector)*\
                           np.fft.fft(sig, axis=1))
     # Real part of output
-    if signal.ndim > 1:
-        return sig_out.real
-    else:
-        return sig_out.real.flatten()
+    return sig_out.real if signal.ndim > 1 else sig_out.real.flatten()
 
 
 def orthonormalize_signal(E, os=1):

@@ -122,21 +122,12 @@ class TestSyncAndAdjust(object):
         if rx_longer is None:
             tx = x
             rx = y_equal
-        else:
-            if adjust == "tx":
-                if rx_longer:
-                    rx = y
-                    tx = x
-                else:
-                    rx = ym
-                    tx = x
-            elif adjust == "rx":
-                if rx_longer:
-                    rx = x
-                    tx = ym
-                else:
-                    rx = x
-                    tx = y
+        elif adjust == "rx":
+            tx = ym if rx_longer else y
+            rx = x
+        elif adjust == "tx":
+            rx = y if rx_longer else ym
+            tx = x
         (tx, rx), acm = ber_functions.sync_and_adjust(tx, rx, adjust=adjust)
         npt.assert_array_almost_equal(tx, rx)
 
@@ -179,21 +170,13 @@ class TestSyncAndAdjust(object):
         if rx_longer is None:
             tx = x
             rx = y_equal
-        else:
-            if adjust == "tx":
-                if rx_longer:
-                    rx = y
-                    tx = x
-                else:
-                    rx = x
-                    tx = y
-            elif adjust == "rx":
-                if rx_longer:
-                    rx = y
-                    tx = x
-                else:
-                    rx = x
-                    tx = y
+        elif adjust in ["tx", "rx"]:
+            if rx_longer:
+                rx = y
+                tx = x
+            else:
+                rx = x
+                tx = y
         (tx, rx), acm = ber_functions.sync_and_adjust(tx, rx, adjust=adjust)
         assert tx.shape == rx.shape
 
@@ -246,10 +229,7 @@ class TestSyncAndAdjust(object):
     def test_ser_with_random_slice(self, N, plus):
         s = signals.SignalQAMGrayCoded(4, 2**17)
         ss = np.tile(s, 4)
-        if plus:
-            s2 = ss[0,N:2**17+3*N]
-        else:
-            s2 = ss[0,N:2**17-3*N]
+        s2 = ss[0,N:2**17+3*N] if plus else ss[0,N:2**17-3*N]
         npt.assert_allclose(s2.cal_ser(),0)
 
 
@@ -270,9 +250,6 @@ class TestAdjustDataLength(object):
         if method is "extend":
             N_ex = N
         if method is None:
-            if N1:
-                N_ex = N
-            else:
-                N_ex = N2
+            N_ex = N if N1 else N2
         assert (tx.shape[0] == N_ex) and (rx.shape[0] == N_ex)
 

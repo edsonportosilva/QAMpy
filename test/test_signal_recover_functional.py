@@ -138,10 +138,7 @@ class TestDualMode(object):
         snr = 15
         beta = 0.9
         mu1 = 2e-3
-        if method2 == "mddma":
-            mu2 = 1.0e-3
-        else:
-            mu2 = 2e-3
+        mu2 = 1.0e-3 if method2 == "mddma" else 2e-3
         M = 32
         ntaps = 21
         s = signals.SignalQAMGrayCoded(M, N, nmodes=2, fb=fb)

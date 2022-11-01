@@ -154,10 +154,7 @@ def phase_noise(sz, df, fs):
     """
     var = 2*np.pi*df/fs
     f = np.random.normal(scale=np.sqrt(var), size=sz)
-    if len(f.shape) > 1:
-        return np.cumsum(f, axis=1)
-    else:
-        return np.cumsum(f)
+    return np.cumsum(f, axis=1) if len(f.shape) > 1 else np.cumsum(f)
 
 def apply_phase_noise(signal, df, fs):
     """
@@ -310,7 +307,7 @@ def simulate_transmission(sig, fb, fs, snr=None, freq_off=None, lwdth=None, dgd=
     """
 
     if roll_frame_sync:
-        if not (sig.nframes > 1):
+        if sig.nframes <= 1:
             warnings.warn("Only single frame present, discontinuity introduced")
         sig = np.roll(sig,sig.pilots.shape[1],axis=-1)
     if lwdth is not None:
@@ -454,9 +451,14 @@ def modulator_response(rfsig, dcbias=1, gfactr=1, cfactr=0, dcbias_out=0.5, gfac
             gfactr.real * np.exp(-1j * np.pi * volt.real * (1 - cfactr.real) / 2)) / (1 + gfactr.real)
     e_q = -(np.exp(1j * np.pi * volt.imag * (1 + cfactr.imag) / 2) +
             gfactr.imag * np.exp(-1j * np.pi * volt.imag * (1 - cfactr.imag) / 2)) / (1 + gfactr.imag)
-    e_out = np.exp(1j * np.pi / 4) * (e_i * np.exp(-1j * np.pi * dcbias_out/2 ) +
-                                      gfactr_out * e_q * np.exp(1j * np.pi * dcbias_out / 2)) / (1 + gfactr_out)
-    return e_out
+    return (
+        np.exp(1j * np.pi / 4)
+        * (
+            e_i * np.exp(-1j * np.pi * dcbias_out / 2)
+            + gfactr_out * e_q * np.exp(1j * np.pi * dcbias_out / 2)
+        )
+        / (1 + gfactr_out)
+    )
 
 def er_to_g(ext_rat):
     """
@@ -469,8 +471,7 @@ def er_to_g(ext_rat):
     -------
 
     """
-    g = (10**(ext_rat/20)-1)/(10**(ext_rat/20)+1)
-    return g
+    return (10**(ext_rat/20)-1)/(10**(ext_rat/20)+1)
 
 def sim_DAC_response(sig, fs, enob=5, clip_rat=1, quant_bits=0, **dac_params):
     """
@@ -507,11 +508,7 @@ def sim_DAC_response(sig, fs, enob=5, clip_rat=1, quant_bits=0, **dac_params):
         sig_clip = quantize_signal_New(sig_clip, nbits=quant_bits, rescale_in=True, rescale_out=True)
     if not np.isclose(enob, 0):
         sig_clip = apply_enob_as_awgn(sig_clip, enob)
-    if dac_params:
-        filter_sig = apply_DAC_filter(sig_clip, fs, **dac_params)
-    else:
-        filter_sig = sig_clip
-    return filter_sig
+    return apply_DAC_filter(sig_clip, fs, **dac_params) if dac_params else sig_clip
 
 def apply_DAC_filter(sig, fs, cutoff=18e9, fn=None, ch=1):
     """
@@ -537,14 +534,11 @@ def apply_DAC_filter(sig, fs, cutoff=18e9, fn=None, ch=1):
     filter_sig : array_like
         filtered signal
     """
-    # filtering was split into real and imaginary before but that should not be necessary
     if fn is None:
-        filter_sig = filter_signal(sig, fs, cutoff, ftype="bessel", order=2)
-    else:
-        H_dac = load_dac_response(fn, fs, sig.shape[-1], ch=ch).astype(sig) # should check if response is real
-        sigf = fft.fft(sig)
-        filter_sig = fft.ifft(sigf * H_dac)
-    return filter_sig
+        return filter_signal(sig, fs, cutoff, ftype="bessel", order=2)
+    H_dac = load_dac_response(fn, fs, sig.shape[-1], ch=ch).astype(sig) # should check if response is real
+    sigf = fft.fft(sig)
+    return fft.ifft(sigf * H_dac)
 
 def apply_enob_as_awgn(sig, enob, verbose=False):
     """
@@ -570,7 +564,7 @@ def apply_enob_as_awgn(sig, enob, verbose=False):
     snr_enob: float
         SNR corresponding to the ENOB in dB
     """
-    powsig_mean = np.mean(abs(sig)**2) 
+    powsig_mean = np.mean(abs(sig)**2)
     if np.iscomplexobj(sig):
         x_max = np.maximum(abs(sig.real).max(), abs(sig.imag).max())    # maximum amplitude in real or imag part
     else:
@@ -579,10 +573,7 @@ def apply_enob_as_awgn(sig, enob, verbose=False):
     pownoise_mean = delta ** 2 / 12
     sig_enob_noise = add_awgn(sig, np.sqrt(2*pownoise_mean))  # add two-time noise power to complex signal
     snr_enob = 10*np.log10(powsig_mean/2/pownoise_mean)  # Use half of the signal power to calculate snr
-    if verbose:
-        return sig_enob_noise, snr_enob
-    else:
-        return sig_enob_noise
+    return (sig_enob_noise, snr_enob) if verbose else sig_enob_noise
 
 def load_dac_response(fn, fs, N, ch=1):
     """
@@ -650,8 +641,7 @@ def sim_tx_response(sig, fs, enob=6, tgt_v=1, clip_rat=1, quant_bits=0, dac_para
     sig_dac_out = sim_DAC_response(sig, fs, enob,  clip_rat=clip_rat, quant_bits=quant_bits, **dac_params)
     # Amplify the signal to target voltage(V)
     sig_amp = ideal_amplifier_response(sig_dac_out, tgt_v)
-    e_out = modulator_response(sig_amp, **mod_prms)
-    return e_out
+    return modulator_response(sig_amp, **mod_prms)
 
 def ideal_amplifier_response(sig, out_volt):
     """
@@ -696,6 +686,5 @@ def add_dispersion(sig, fs, D, L, wl0=1550e-9):
     beta2 = D * wl0**2 / (C*np.pi*2)
     H = np.exp(-0.5j * omega**2 * beta2 * L).astype(sig.dtype)
     sff = fft.fft(fft.ifftshift(sig, axes=-1), axis=-1)
-    sig_out = fft.fftshift(fft.ifft(sff*H))
-    return sig_out
+    return fft.fftshift(fft.ifft(sff*H))
 

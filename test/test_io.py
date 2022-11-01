@@ -55,8 +55,7 @@ class TestMatIO(object):
         tmpdir = tempfile.mkdtemp()
         dat = []
         for i in range(nmodes):
-            dat.append(sig.symbols[i].real)
-            dat.append(sig.symbols[i].imag)
+            dat.extend((sig.symbols[i].real, sig.symbols[i].imag))
         portmap = np.arange(2*nmodes)
         portmap = portmap.reshape(-1, 2)
         fn = os.path.join(tmpdir, "tmp")
@@ -75,8 +74,8 @@ class TestMatIO(object):
         dat = {}
         keys = []
         for i in range(nmodes):
-            dat["sig_{}".format(i)] = sig.symbols[i]
-            keys.append(("sig_{}".format(i),))
+            dat[f"sig_{i}"] = sig.symbols[i]
+            keys.append((f"sig_{i}", ))
         savemat(fn, dat)
         sigout = io.load_symbols_from_matlab_file(fn, sig.M, keys, fb=sig.fb, normalise=False)
         assert sig.fb == sigout.fb
@@ -103,9 +102,9 @@ class TestMatIO(object):
         dat = {}
         keys = []
         for i in range(nmodes):
-            dat["sig_{}_r".format(i)] = sig.symbols[i].real
-            dat["sig_{}_i".format(i)] = sig.symbols[i].imag
-            keys.append(("sig_{}_r".format(i),"sig_{}_i".format(i)))
+            dat[f"sig_{i}_r"] = sig.symbols[i].real
+            dat[f"sig_{i}_i"] = sig.symbols[i].imag
+            keys.append((f"sig_{i}_r", f"sig_{i}_i"))
         savemat(fn, dat)
         sigout = io.load_symbols_from_matlab_file(fn, sig.M, keys, fb=sig.fb, normalise=False)
         assert sig.fb == sigout.fb

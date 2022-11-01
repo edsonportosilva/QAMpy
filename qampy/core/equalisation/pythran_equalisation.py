@@ -14,10 +14,7 @@ def adapt_step(mu, err_p, err):
         return mu/(1+mu*(err.real*err.real + err.imag*err.imag))
 
 def adapt_step_real(mu, err_p, err):
-    if err*err_p > 0:
-        return mu
-    else:
-        return mu/(1+mu*(err*err))
+    return mu if err*err_p > 0 else mu/(1+mu*(err*err))
 
 def apply_filter(E, wx):
     pols = E.shape[0]
@@ -85,7 +82,7 @@ def train_equaliser_realvalued(E, TrSyms, Niter, os, mu, wx, modes, adaptive, sy
     elif method == "sgncma":
         errorfct = sgncma_error_real
     else:
-        raise ValueError("Unknown method %s"%method)
+        raise ValueError(f"Unknown method {method}")
     nmodes = E.shape[0]
     ntaps = wx.shape[-1]
     assert symbols.shape[0] == nmodes, "symbols must be at least size of modes"
@@ -145,7 +142,7 @@ def train_equaliser(E, TrSyms, Niter, os, mu, wx, modes, adaptive, symbols,  met
     elif method == "sbd_data":
         errorfct = sbd_data_error
     else:
-        raise ValueError("Unknown method %s"%method)
+        raise ValueError(f"Unknown method {method}")
     nmodes = E.shape[0]
     ntaps = wx.shape[-1]
     assert symbols.shape[0] == nmodes, "symbols must be at least size of modes"

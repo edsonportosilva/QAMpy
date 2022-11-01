@@ -159,10 +159,8 @@ class SignalBase(np.ndarray):
         l = len(attrs)
         ls = len(state)-l
         super().__setstate__(state[:-l])
-        i = 0
-        for att in attrs:
+        for i, att in enumerate(attrs):
             setattr(self, att, state[ls+i])
-            i += 1
 
     @property
     def M(self):
@@ -195,27 +193,21 @@ class SignalBase(np.ndarray):
             setattr(self, attr, getattr(obj, attr, None))
         if hasattr(obj, "_symbols"):
             s = getattr(obj, "_symbols")
-            if s is None:
-                self._symbols = obj
-            else:
-                self._symbols = obj._symbols
+            self._symbols = obj if s is None else obj._symbols
 
     def _signal_present(self, signal):
-        if signal is None:
-            return np.atleast_2d(self)
-        else:
-            return np.atleast_2d(signal)
+        return np.atleast_2d(self) if signal is None else np.atleast_2d(signal)
 
     def recreate_from_np_array(self, arr, **kwargs):
         obj = arr.view(self.__class__)
         self._copy_inherits(self, obj)
-        if "fb" in kwargs and not "fs" in kwargs:
+        if "fb" in kwargs and "fs" not in kwargs:
             kwargs["fs"] = self.os * kwargs['fb']
         for k, v in kwargs.items():
-            if "_"+k in self._inheritattr_:
-                k = "_" + k
-            if "_"+k in self._inheritbase_:
-                k = "_" + k
+            if f"_{k}" in self._inheritattr_:
+                k = f"_{k}"
+            if f"_{k}" in self._inheritbase_:
+                k = f"_{k}"
             setattr(obj, k, v)
         return obj
 
@@ -225,13 +217,12 @@ class SignalBase(np.ndarray):
         Nnew = int(np.round(os*arr.shape[1]))
         if np.isclose(os, 1):
             return arr.copy().view(cls)
-        if "Ts" in kwargs:
-            Ts = kwargs.pop("Ts")
-        else:
-            Ts = 1/fb
-        onew = []
-        for i in range(arr.shape[0]):
-            onew.append(resample.rrcos_resample(arr[i], fold, fnew, Ts=Ts, **kwargs))
+        Ts = kwargs.pop("Ts") if "Ts" in kwargs else 1/fb
+        onew = [
+            resample.rrcos_resample(arr[i], fold, fnew, Ts=Ts, **kwargs)
+            for i in range(arr.shape[0])
+        ]
+
         onew = np.asarray(onew, dtype=arr.dtype).view(cls)
         cls._copy_inherits(arr, onew)
         return onew
@@ -272,15 +263,9 @@ class SignalBase(np.ndarray):
             return tx, rx
         nm = tx.shape[0]
         if which == "tx":
-            if tx.shape[1] > rx.shape[1]:
-                method = "truncate"
-            else:
-                method = "extend"
+            method = "truncate" if tx.shape[1] > rx.shape[1] else "extend"
         elif which == "rx":
-            if tx.shape[1] > rx.shape[1]:
-                method = "extend"
-            else:
-                method = "truncate"
+            method = "extend" if tx.shape[1] > rx.shape[1] else "truncate"
         else:
             raise ValueError("which has to be either 'tx' or 'rx'")
         tx_out = []
@@ -450,10 +435,7 @@ class SignalBase(np.ndarray):
         n0 = np.zeros(nmodes, dtype=np.float64)
         for i in range(nmodes):
             snr[i], s0[i], n0[i] = estimate_snr(signal_rx[i], symbols_tx[i], self.coded_symbols)
-        if verbose:
-            return snr, s0, n0
-        else:
-            return snr
+        return (snr, s0, n0) if verbose else snr
         
     def cal_gmi(self, signal_rx=None, synced=False, snr=None, llr_minmax=False):
         """
@@ -864,10 +846,7 @@ class SignalQAMGrayCoded(SignalBase):
         idx = np.zeros(signal.shape, dtype=np.uint16)
         for i in range(signal.shape[0]):
             outsyms[i], dist[i], idx[i] = make_decision(signal[i], self.coded_symbols)
-        if verbose:
-            return outsyms, dist, idx
-        else:
-            return outsyms
+        return (outsyms, dist, idx) if verbose else outsyms
 
     @property
     def symbols(self):
@@ -925,9 +904,8 @@ class SignalQAMGrayCoded(SignalBase):
         """
         if np.issubdtype(symbols.dtype, np.integer):
             return self._demodulate(symbols, self._encoding)
-        else:
-            symbs, d, ix = self.make_decision(symbols, verbose=True)
-            return self._demodulate(ix, self._encoding)
+        symbs, d, ix = self.make_decision(symbols, verbose=True)
+        return self._demodulate(ix, self._encoding)
 
 class QPSKfromBERT(SignalQAMGrayCoded):
     """
@@ -1026,10 +1004,7 @@ class SymbolOnlySignal(SignalQAMGrayCoded):
     _inheritattr_ = ["_symbols",  "_coded_symbols" ]
 
     def __new__(cls, M, N, symbols, nmodes=1, fb=1, dtype=None):
-        if dtype is None:
-            coded_symbols = symbols
-        else:
-            coded_symbols = symbols.astype(dtype)
+        coded_symbols = symbols if dtype is None else symbols.astype(dtype)
         obj = np.random.choice(symbols, (nmodes, N))
         obj = obj.view(cls)
         obj._coded_symbols = coded_symbols
@@ -1370,8 +1345,7 @@ class TDHQAMSymbols(SignalBase):
         if method == "dist":
             d1 = np.min(abs(np.diff(np.unique(M1symbols))))
             d2 = np.min(abs(np.diff(np.unique(M2symbols))))
-            scf = (d2 / d1) ** 2
-            return scf
+            return (d2 / d1) ** 2
         else:
             raise NotImplementedError("Only 'dist' method is currently implemented")
 
@@ -1381,26 +1355,22 @@ class TDHQAMSymbols(SignalBase):
         idx2 = idx[idx % self.f_M >= self.f_M1]
         syms1 = np.zeros((signal.shape[0], idx1.shape[0]), dtype=signal.dtype)
         syms2 = np.zeros((signal.shape[0], idx2.shape[0]), dtype=signal.dtype)
-        if self.M[0] > self.M[1]:
-            idx_m = idx1
-        else:
-            idx_m = idx2
-        if self._power_method == "dist":
-            idx_max = []
-            for i in range(signal.shape[0]):
-                imax = 0
-                pmax = -10
-                for j in range(self._frame_len):
-                    pmax_n = np.mean(abs(signal[i, (idx_m + j) % idx.max()]))
-                    if pmax_n > pmax:
-                        imax = j
-                        pmax = pmax_n
-                syms1[i, :] = signal[i, (idx1 + imax) % idx.max()]
-                syms2[i, :] = signal[i, (idx2 + imax) % idx.max()]
-            return self._symbols_M1.from_symbol_array(syms1, fb=self.fb, M=self.M[0]), \
-                   self._symbols_M2.from_symbol_array(syms2, fb=self.fb, M=self.M[1])
-        else:
+        if self._power_method != "dist":
             raise NotImplementedError("currently only 'dist' method is implemented")
+        idx_max = []
+        idx_m = idx1 if self.M[0] > self.M[1] else idx2
+        for i in range(signal.shape[0]):
+            imax = 0
+            pmax = -10
+            for j in range(self._frame_len):
+                pmax_n = np.mean(abs(signal[i, (idx_m + j) % idx.max()]))
+                if pmax_n > pmax:
+                    imax = j
+                    pmax = pmax_n
+            syms1[i, :] = signal[i, (idx1 + imax) % idx.max()]
+            syms2[i, :] = signal[i, (idx2 + imax) % idx.max()]
+        return self._symbols_M1.from_symbol_array(syms1, fb=self.fb, M=self.M[0]), \
+                   self._symbols_M2.from_symbol_array(syms2, fb=self.fb, M=self.M[1])
 
     def _demodulate(self):
         raise NotImplementedError("Use demodulation of subclasses")
@@ -1481,14 +1451,8 @@ class SignalWithPilots(SignalBase):
         out_symbs[:, idx_dat] = symbs
         out_symbs = np.tile(out_symbs, nframes)
         obj = out_symbs.view(cls)
-        if "fb" in kwargs:
-            obj._fb = kwargs.pop("fb")
-        else:
-            obj._fb = symbs.fb
-        if "fs" in kwargs:
-            obj._fs = kwargs.pop("fs")
-        else:
-            obj._fs = symbs.fb
+        obj._fb = kwargs.pop("fb") if "fb" in kwargs else symbs.fb
+        obj._fs = kwargs.pop("fs") if "fs" in kwargs else symbs.fb
         obj._frame_len = frame_len
         obj._pilot_seq_len = pilot_seq_len
         obj._pilot_ins_rat = pilot_ins_rat
@@ -1504,8 +1468,8 @@ class SignalWithPilots(SignalBase):
     @staticmethod
     def _cal_pilot_idx(frame_len, pilot_seq_len, pilot_ins_rat):
         idx = np.arange(frame_len)
-        idx_pil_seq = idx < pilot_seq_len
         if pilot_ins_rat == 0 or pilot_ins_rat is None:
+            idx_pil_seq = idx < pilot_seq_len
             idx_pil = idx_pil_seq
         else:
             if (frame_len - pilot_seq_len) % pilot_ins_rat != 0:
@@ -1648,13 +1612,11 @@ class SignalWithPilots(SignalBase):
     
     @property
     def idx_payload(self):
-        idx = np.tile(self._idx_dat, self.nframes)[:self.shape[-1]]
-        return idx
+        return np.tile(self._idx_dat, self.nframes)[:self.shape[-1]]
 
     @property
     def idx_pilots(self):
-        idx = np.tile(np.bitwise_not(self._idx_dat), self.nframes)[:self.shape[-1]]
-        return idx
+        return np.tile(np.bitwise_not(self._idx_dat), self.nframes)[:self.shape[-1]]
 
     @synctaps.setter
     def synctaps(self, value):
@@ -1685,9 +1647,14 @@ class SignalWithPilots(SignalBase):
                {"adaptive_stepsize": True, "Niter": 10, "method": "cma", "Ntaps":17, "mu": 5e-3}
 
         """
-        # TODO fix for syncing correctly
-        eqargs = {"adaptive_stepsize": True, "Niter": 10, "method": "cma", "Ntaps":17, "mu": 5e-3}
-        eqargs.update(kwargs)
+        eqargs = {
+            "adaptive_stepsize": True,
+            "Niter": 10,
+            "method": "cma",
+            "Ntaps": 17,
+            "mu": 5e-3,
+        } | kwargs
+
         mu = eqargs.pop("mu")
         Ntaps = eqargs.pop("Ntaps")
         shift_factors, coarse_foe, mode_alignment, wx1, sync_bool = pilotbased_receiver.frame_sync(self, self.pilot_seq, self.os,
@@ -1700,10 +1667,7 @@ class SignalWithPilots(SignalBase):
         self.shiftfctrs = shift_factors[mode_alignment]
         self.synctaps = Ntaps
         self._foe = coarse_foe
-        if returntaps:
-            return wx1, sync_bool
-        else:
-            return sync_bool
+        return (wx1, sync_bool) if returntaps else sync_bool
 
 
     def corr_foe(self, additional_foe = 0):
@@ -1731,7 +1695,10 @@ class SignalWithPilots(SignalBase):
         else:
             frames = np.atleast_1d(frames)
             nframes = np.max(frames)
-            assert nframes <= self.nframes, "Signal object only contains {} frames can't extract more".format(self.nframes)
+            assert (
+                nframes <= self.nframes
+            ), f"Signal object only contains {self.nframes} frames can't extract more"
+
         idx = np.hstack([np.nonzero(self._idx_dat)[0] + i * self._frame_len for i in frames] )
         return self.symbols.recreate_from_np_array(self[:, idx].copy()) # better save to make copy here
 
@@ -1754,7 +1721,10 @@ class SignalWithPilots(SignalBase):
         else:
             frames = np.atleast_1d(frames)
             nframes = np.max(frames)
-            assert nframes <= self.nframes, "Signal object only contains {} frames can't extract more".format(self.nframes)
+            assert (
+                nframes <= self.nframes
+            ), f"Signal object only contains {self.nframes} frames can't extract more"
+
         idx = np.hstack([np.nonzero(self._idx_pil)[0] + i * self._frame_len for i in frames] )
         return self.pilots.recreate_from_np_array(self[:, idx])
 

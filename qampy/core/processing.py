@@ -73,7 +73,7 @@ class RepWorker(object):
         self.context = context or zmq.Context.instance()
         self.socket = self.context.socket(zmq.REP)
         self.socket.connect(url)
-        print("started on %s"%url)
+        print(f"started on {url}")
 
     def send_msg(self, msg, success=b"OK", flags=0):
         self.socket.send_multipart([success, pack_array(msg)], flags=flags)
@@ -104,10 +104,10 @@ class DataDealer(object):
     def __init__(self, url, port=None, context=None):
         self.context = context or zmq.Context.instance()
         self.socket = self.context.socket(zmq.DEALER)
-        if port == None:
+        if port is None:
             self.port = self.socket.bind_to_random_port(url, min_port=5000, max_port=5100)
         else:
-            self.socket.bind(u"{}:{}".format(url, port))
+            self.socket.bind(f"{url}:{port}")
             self.port = port
 
     def send_msg(self, header, msg, identity=None, flags=0):
@@ -125,8 +125,6 @@ class DataDealer(object):
                 return unpack_array(msg[2])
             else:
                 raise Exception(msg)
-        else:
-            pass
 
 class ResultSink(object):
     def __init__(self, url, port=None, context=None):
@@ -135,7 +133,7 @@ class ResultSink(object):
         if port is None:
             self.socket.bind_to_random_port(url)
         else:
-            self.socket.bind(url+":"+port)
+            self.socket.bind(f"{url}:{port}")
 
 
 class PhRecWorker(RepWorker):

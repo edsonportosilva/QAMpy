@@ -65,23 +65,19 @@ def normalise_and_center_pil(sig, idx_pil):
         ct_fac = - np.mean(sig_pil, axis=-1)[:, np.newaxis]
         sig_pil = sig_pil + ct_fac
         pil_p = np.sqrt(np.mean(abs(sig_pil)**2, axis=-1))
-        sig_out = (sig + ct_fac) / pil_p[:, np.newaxis]
+        return (sig + ct_fac) / pil_p[:, np.newaxis]
     else:
         ct_fac = -(np.mean(sig_pil.real) + 1.j * np.mean(sig_pil.imag))
         sig_pil = sig_pil + ct_fac
         pil_p = np.sqrt(np.mean(abs(sig_pil)**2))
-        sig_out = (sig + ct_fac) / pil_p
-    return sig_out
+        return (sig + ct_fac) / pil_p
 
 
 def dump_edges(E, N):
     """
     Remove N samples from the front and end of the input field.
     """
-    if E.ndim > 1:
-        return E[:,N:-N]
-    else:
-        return E[N:-N]
+    return E[:,N:-N] if E.ndim > 1 else E[N:-N]
 
 def set_mid_point(E, mid_pos=0):
     """
@@ -102,10 +98,10 @@ def rescale_signal(E, swing=1):
     swing = np.atleast_1d(swing)
     if np.iscomplexobj(E):
         scale_factor = np.maximum(np.max(abs(E.real), axis=-1), np.max(abs(E.imag), axis=-1))
-        return E / scale_factor[:, np.newaxis] * swing[:,np.newaxis]
     else:
         scale_factor = np.max(abs(E), axis=-1)
-        return E / scale_factor[:, np.newaxis] * swing[:,np.newaxis]
+
+    return E / scale_factor[:, np.newaxis] * swing[:,np.newaxis]
 
 def set_mid_and_resale(E,mid_pos=0,swing=1):
     """
@@ -120,11 +116,11 @@ def get_center_shift_fac(E):
     """
     Obtain shift factor (x_shift, y_shift) that is used to center the signal.
     """
-    if E.ndim > 1:
-        shift_fac = - np.mean(E, axis=-1)[:, np.newaxis]
-    else:
-        shift_fac = -(np.mean(E.real) + 1.j * np.mean(E.imag))
-    return shift_fac
+    return (
+        -np.mean(E, axis=-1)[:, np.newaxis]
+        if E.ndim > 1
+        else -(np.mean(E.real) + 1.0j * np.mean(E.imag))
+    )
 
 def find_pilot_idx(nframe=2, frame_len = 2 ** 16, os_rate=2, pilot_seq_len=1024, pilot_ins_rat=32):
     """
