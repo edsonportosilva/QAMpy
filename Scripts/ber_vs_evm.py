@@ -51,24 +51,22 @@ ax4.set_ylim(-30, 0)
 
 c = ['b', 'r', 'g', 'c', 'k']
 s = ['o', '<', 's', '+', 'd']
-j = 0
 fb = 10e9
 os = 2
 fs = os*fb
 ntaps = 13
 beta = 0.01
-for M in Mqams:
+tt = []
+ox = []
+
+for j, M in enumerate(Mqams):
     print("%d-QAM"%M)
     ser = np.zeros(snr.shape)
     ber = np.zeros(snr.shape)
     evm1 = np.zeros(snr.shape)
     evm_known = np.zeros(snr.shape)
     q_known = np.zeros(snr.shape)
-    tt = []
-    ox = []
-
-    i = 0
-    for sr in snr:
+    for i, sr in enumerate(snr):
         print("SNR = %2f.0 dB"%sr)
         #modulator = modulation.QAMModulator(M)
         signal = signals.SignalQAMGrayCoded(M, N, nmodes=1, fb=fb)
@@ -81,7 +79,6 @@ for M in Mqams:
         signalafter = np.roll(signalafter * 1.j**np.random.randint(0,4), np.random.randint(4, 3000), axis=1)
         ser[i] = signalafter.cal_ser()
         ber[i] = signalafter.cal_ber()
-        i += 1
     ax1.plot(snrf, theory.ber_vs_es_over_n0_qam(10 ** (snrf / 10), M), color=c[j], label="%d-QAM theory" % M)
     ax1.plot(snr, ber, color=c[j], marker=s[j], lw=0, label="%d-QAM"%M)
     ax2.plot(snrf, theory.ser_vs_es_over_n0_qam(10 ** (snrf / 10), M), color=c[j], label="%d-QAM theory" % M)
@@ -92,8 +89,6 @@ for M in Mqams:
     ax3.plot(qampy.helpers.lin2dB(evm_known ** 2), ber, color=c[j], marker='*', lw=0, label="%d-QAM non-blind" % M)
     ax4.plot(snr, qampy.helpers.lin2dB(evm1 ** 2), color=c[j], marker=s[j], lw=0, label="%d-QAM" % M)
     ax4.plot(snr, qampy.helpers.lin2dB(evm_known ** 2), color=c[j], marker='*', lw=0, label="%d-QAM non-blind" % M)
-    #ax4.plot(snr, utils.lin2dB(evm2), color=c[j], marker='*', lw=0, label="%d-QAM signalq"%M)
-    j += 1
 ax1.legend()
 ax2.legend()
 #ax3.legend()

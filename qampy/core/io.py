@@ -115,13 +115,12 @@ def ndarray_from_matlab(fn, keys, transpose=False, dim2cmplx=False, portmap=[[0,
                 out = mat_dict[keys[i][0]].flatten()
             else:
                 raise ValueError("Keys is in the wrong format, see documentation for correct format")
-            if i > 0:
-                symbs = np.vstack([ symbs, out])
-            else:
-                symbs = out
+            symbs = np.vstack([ symbs, out]) if i > 0 else out
     if dim2cmplx:
-        out = []
-        for i in range(len(portmap)):
-            out.append(symbs[portmap[i][0]] + 1j*symbs[portmap[i][1]])
+        out = [
+            symbs[portmap[i][0]] + 1j * symbs[portmap[i][1]]
+            for i in range(len(portmap))
+        ]
+
         symbs = np.array(out)
     return symbs

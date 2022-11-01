@@ -13,11 +13,10 @@ def _flip_symbols(sig, idx, d, mode=0):
                 sig[mode,i] -= d
             else:
                 sig[mode,i] += d
+        elif sig[mode,i].imag > 0:
+            sig[mode,i] -= 1.j * d
         else:
-            if sig[mode,i].imag > 0:
-                sig[mode,i] -= 1.j * d
-            else:
-                sig[mode,i] += 1.j * d
+            sig[mode,i] += 1.j * d
     return sig
 
 
@@ -212,7 +211,10 @@ class TestQAMSymbolsGray(object):
         s = signals.SignalQAMGrayCoded(128, N)
         sn = s.resample(os, beta=0.2, renormalise=True, taps=ntaps, fftconv=fftconv)
         sp = abs(np.fft.fftshift(np.fft.fft(sn[0])))**2
-        assert np.mean(sp[0:int(1/8*sp.size)]) < np.mean(sp[int(3/8*sp.size):int(1/2*sp.size)])/1000
+        assert (
+            np.mean(sp[: int(1 / 8 * sp.size)])
+            < np.mean(sp[int(3 / 8 * sp.size) : int(1 / 2 * sp.size)]) / 1000
+        )
 
     @pytest.mark.parametrize("M", [4, 16, 32, 64])
     def test_scale(self, M):
@@ -308,13 +310,11 @@ class TestQAMSymbolsGray(object):
         import tempfile
         import pickle
         dr = tempfile.TemporaryDirectory()
-        fp = open(dr.name+"/data.pic", "wb")
-        s = signals.SignalQAMGrayCoded(128, 2**12, fb=10e9, nmodes=2)
-        pickle.dump(s, fp)
-        fp.close()
-        fp2 = open(dr.name+"/data.pic", "rb")
-        s2 = pickle.load(fp2)
-        fp2.close()
+        with open(f"{dr.name}/data.pic", "wb") as fp:
+            s = signals.SignalQAMGrayCoded(128, 2**12, fb=10e9, nmodes=2)
+            pickle.dump(s, fp)
+        with open(f"{dr.name}/data.pic", "rb") as fp2:
+            s2 = pickle.load(fp2)
         dr.cleanup()
         npt.assert_array_almost_equal(s,s2)
         npt.assert_array_almost_equal(s.symbols,s2.symbols)
@@ -480,13 +480,11 @@ class TestPilotSignal(object):
         import tempfile
         import pickle
         dr = tempfile.TemporaryDirectory()
-        fp = open(dr.name+"/data.pic", "wb")
-        s = signals.SignalWithPilots(128, 2**16, 256, 32)
-        pickle.dump(s, fp)
-        fp.close()
-        fp2 = open(dr.name+"/data.pic", "rb")
-        s2 = pickle.load(fp2)
-        fp2.close()
+        with open(f"{dr.name}/data.pic", "wb") as fp:
+            s = signals.SignalWithPilots(128, 2**16, 256, 32)
+            pickle.dump(s, fp)
+        with open(f"{dr.name}/data.pic", "rb") as fp2:
+            s2 = pickle.load(fp2)
         dr.cleanup()
         npt.assert_array_almost_equal(s,s2)
         npt.assert_array_almost_equal(s.symbols,s2.symbols)
@@ -525,7 +523,6 @@ class TestTDHybridsSymbols(object):
     def test_ratio(self, r1, r2):
         import math
         if math.gcd(r1, r2) > 1:
-            assert True
             return
         r = r1 + r2
         o = signals.TDHQAMSymbols((16, 4), 1000, fr=r2 / r)
@@ -533,10 +530,10 @@ class TestTDHybridsSymbols(object):
             s = o[0, i::r]
             if i % r < r1:
                 d = np.min(abs(s[:, np.newaxis] - o._symbols_M1), axis=1)
-                npt.assert_array_almost_equal(d, 0)
             else:
                 d = np.min(abs(s[:, np.newaxis] - o._symbols_M2), axis=1)
-                npt.assert_array_almost_equal(d, 0)
+
+            npt.assert_array_almost_equal(d, 0)
 
     def testclass(self):
         s = signals.TDHQAMSymbols((16, 4), 1000)
@@ -549,7 +546,6 @@ class TestTDHybridsSymbols(object):
     def test_from_arrays_shape(self, r1, r2):
         import math
         if math.gcd(r1, r2) > 1:
-            assert True
             return
         r = r1 + r2
         s1 = signals.SignalQAMGrayCoded(16, 1000 * r1)
@@ -563,7 +559,6 @@ class TestTDHybridsSymbols(object):
     def test_from_arrays_ratio(self, r1, r2):
         import math
         if math.gcd(r1, r2) > 1:
-            assert True
             return
         r = r1 + r2
         s1 = signals.SignalQAMGrayCoded(16, 1000 * r1, seed=[1, 2])
@@ -692,7 +687,6 @@ class TestSignalQualityCorrectnes(object):
         s = signals.SignalQAMGrayCoded(M, 10**5, nmodes=1)
         ser_t = theory.ser_vs_es_over_n0_qam(10**(snr/10), M)
         if ser_t < 1e-4:
-            assert True
             return
         s2 = impairments.change_snr(s, snr)
         s2 = np.roll(s2, shift, axis=-1)

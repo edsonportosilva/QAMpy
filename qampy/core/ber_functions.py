@@ -66,10 +66,7 @@ def find_sequence_offset(x, y, show_cc=False):
     else:
         ac = fftconvolve(X, Y[::-1], 'full')
     idx = abs(ac).argmax()-(N_Y-1) # this is necessary to find the correct position (size of full is N_X+N_Y-1)
-    if show_cc is True:
-        return idx, ac
-    else:
-        return idx
+    return (idx, ac) if show_cc is True else idx
 
 def find_sequence_offset_complex(x, y):
     """
@@ -133,7 +130,7 @@ def sync_and_adjust(data_tx, data_rx, adjust="tx"):
     """
     N_tx = data_tx.shape[0]
     N_rx = data_rx.shape[0]
-    assert adjust == "tx" or adjust == "rx", "adjust need to be either 'tx' or 'rx'"
+    assert adjust in ["tx", "rx"], "adjust need to be either 'tx' or 'rx'"
     if N_tx > N_rx:
         if adjust == "tx":
             offset, tx, ii, acm = find_sequence_offset_complex(data_rx, data_tx)
@@ -152,13 +149,12 @@ def sync_and_adjust(data_tx, data_rx, adjust="tx"):
             offset, rx, ii, acm  = find_sequence_offset_complex(data_tx, data_rx)
             rx = np.roll(rx, offset)
             return adjust_data_length(data_tx, rx, method="truncate"), acm
-    else:
-        if adjust == "tx":
-            offset, tx, ii, acm = find_sequence_offset_complex(data_rx, data_tx)
-            return (np.roll(tx, offset), data_rx), acm
-        elif adjust == "rx":
-            offset, rx, ii, acm = find_sequence_offset_complex(data_tx, data_rx)
-            return (data_tx, np.roll(rx, offset)), acm
+    elif adjust == "tx":
+        offset, tx, ii, acm = find_sequence_offset_complex(data_rx, data_tx)
+        return (np.roll(tx, offset), data_rx), acm
+    elif adjust == "rx":
+        offset, rx, ii, acm = find_sequence_offset_complex(data_tx, data_rx)
+        return (data_tx, np.roll(rx, offset)), acm
 
 def sync_rx2tx(data_tx, data_rx, Lsync, imax=200):
     """Sync the received data sequence to the transmitted data, which
@@ -293,7 +289,6 @@ def adjust_data_length(data_tx, data_rx, method=None, offset=0):
                 data_rx1 = _adjust_to(data_rx, offset, back=False)
                 data_rx2 = _adjust_to(data_rx, data_tx.shape[0]-data_rx1.shape[0])
                 data_rx = np.hstack([data_rx1, data_rx2])
-            return data_tx, data_rx
         elif len(data_tx) < len(data_rx):
             if offset == 0:
                 data_tx = _adjust_to(data_tx, data_rx.shape[0])
@@ -301,22 +296,17 @@ def adjust_data_length(data_tx, data_rx, method=None, offset=0):
                 data_tx1 = _adjust_to(data_tx, offset, back=False)
                 data_tx2 = _adjust_to(data_tx, data_rx.shape[0]-data_tx1.shape[0])
                 data_tx = np.hstack([data_tx1, data_tx2])
-            return data_tx, data_rx
-        else:
-            return data_tx, data_rx
+        return data_tx, data_rx
 
 def _adjust_to(data, N, back=True):
     L = data.shape[0]
     K = N//L
     rem = N%L
     try:
-        tmp = np.hstack([data for i in range(K)])
+        tmp = np.hstack([data for _ in range(K)])
     except ValueError:
         tmp = np.array([], dtype=data.dtype)
-    if back:
-        data = np.hstack([tmp, data[:rem]])
-    else:
-        data = np.hstack([data[-rem:], tmp])
+    data = np.hstack([tmp, data[:rem]]) if back else np.hstack([data[-rem:], tmp])
     return data
 
 def cal_ber_syncd(data_rx, data_tx, threshold=0.2):

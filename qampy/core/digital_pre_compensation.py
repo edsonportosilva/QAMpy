@@ -52,8 +52,7 @@ def comp_mod_sin(sig, vpi=1.14):
         vpi = vpi + 1j*vpi
     sig_out_re = 2 * vpi.real * np.arcsin(sig.real)
     sig__out_im = 2 * vpi.imag * np.arcsin(sig.imag)
-    sig_out = sig_out_re + 1j*sig__out_im
-    return sig_out
+    return sig_out_re + 1j*sig__out_im
 
 def comp_dac_resp(dpe_fb, sim_len, rrc_beta, PAPR=9, prms_dac=(16e9, 2, 'sos', 6), os=2):
     """
@@ -92,8 +91,7 @@ def comp_dac_resp(dpe_fb, sim_len, rrc_beta, PAPR=9, prms_dac=(16e9, 2, 'sos', 6
     # Calculate dpe filter p_f
     df = dpe_fs/sim_len
     alpha = 10 ** (PAPR / 10) / (6 * dpe_fb * 2 ** (2 * enob)) * np.sum(abs(d_f) ** 2 * n_f * df)
-    p_f = n_f * np.conj(d_f) / (n_f * abs(d_f) ** 2 + alpha)
-    return p_f
+    return n_f * np.conj(d_f) / (n_f * abs(d_f) ** 2 + alpha)
 
 def find_sym_patterns(sig, ref_sym, N, ret_ptrns=False):
     """

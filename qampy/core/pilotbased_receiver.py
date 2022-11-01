@@ -296,7 +296,10 @@ def pilot_based_cpe_new(signal, pilot_symbs,  pilot_idx, frame_len, seq_len=None
     # Should be an odd number to keey symmetry in averaging
     if not(num_average % 2):
         num_average += 1
-        warnings.warn("Number of averages should be odd, adding one average, num_average={}".format(num_average))
+        warnings.warn(
+            f"Number of averages should be odd, adding one average, num_average={num_average}"
+        )
+
     signal = np.atleast_2d(signal)
     pilot_symbs = np.atleast_2d(pilot_symbs)
     # select idx based on insertion ratio and pilot sequence
@@ -372,14 +375,18 @@ def frame_sync(rx_signal, ref_symbs, os, frame_len=2 ** 16, M_pilot=4,
     pilot_seq_len = ref_symbs.shape[-1]
     nmodes = rx_signal.shape[0]
     assert rx_signal.shape[-1] >= (frame_len + 2*pilot_seq_len)*os, "Signal must be at least as long as frame"
-    if "method" in eqargs.keys():
+    if "method" in eqargs:
         if eqargs["method"] in equalisation.REAL_VALUED:
             if np.iscomplexobj(rx_signal):
-                raise ValueError("Equaliser method is {}, but using a real-valued equaliser in frame sync is unsupported"\
-                                 .format(eqargs["method"]))
+                raise ValueError(
+                    f'Equaliser method is {eqargs["method"]}, but using a real-valued equaliser in frame sync is unsupported'
+                )
+
         elif eqargs["method"] in equalisation.DATA_AIDED:
-            raise ValueError("Equaliser method is {}, but using a data-aided equaliser in frame sync is unsupported"\
-                             .format(eqargs["method"]))
+            raise ValueError(
+                f'Equaliser method is {eqargs["method"]}, but using a data-aided equaliser in frame sync is unsupported'
+            )
+
     mode_sync_order = np.zeros(nmodes, dtype=int)
     not_found_modes = np.arange(0, nmodes)
     search_overlap = 2 # fraction of pilot_sequence to overlap
@@ -436,7 +443,7 @@ def frame_sync(rx_signal, ref_symbs, os, frame_len=2 ** 16, M_pilot=4,
 def correct_shifts(shift_factors, ntaps, os):
     # taps cause offset on shift factors
     shift_factors = np.asarray(shift_factors)
-    if not((ntaps[1]-ntaps[0])%os  ==  0):
+    if (ntaps[1] - ntaps[0]) % os != 0:
         raise ValueError("Taps for search and convergence impropper configured")
     tap_cor = int((ntaps[1]-ntaps[0])/2)
     shift_factors -= tap_cor
@@ -496,17 +503,19 @@ def equalize_pilot_sequence(rx_signal, ref_symbs, shift_fctrs, os, foe_comp=Fals
     # Inital settings
     rx_signal = np.atleast_2d(rx_signal)
     ref_symbs = np.atleast_2d(ref_symbs)
-    npols = rx_signal.shape[0]    
+    npols = rx_signal.shape[0]
     pilot_seq_len = ref_symbs.shape[-1]
     wx = wxinit
-    if methods[0] in equalisation.REAL_VALUED:
-       if methods[1] not in equalisation.REAL_VALUED:
-           raise ValueError("Using a complex and real-valued equalisation method is not supported")
-    elif methods[1] in equalisation.REAL_VALUED:
+    if (
+        methods[0] in equalisation.REAL_VALUED
+        and methods[1] not in equalisation.REAL_VALUED
+        or methods[0] not in equalisation.REAL_VALUED
+        and methods[1] in equalisation.REAL_VALUED
+    ):
         raise ValueError("Using a complex and real-valued equalisation method is not supported")
     if np.unique(shift_fctrs).shape[0] > 1:
         syms_out = []
-        
+
         syms_out = np.zeros_like(ref_symbs)
         for i in range(npols):
             rx_sig_mode = rx_signal[:, shift_fctrs[i] : shift_fctrs[i] + pilot_seq_len * os + Ntaps - 1]
@@ -523,7 +532,7 @@ def equalize_pilot_sequence(rx_signal, ref_symbs, shift_fctrs, os, foe_comp=Fals
                                      Niter=Niter, method=methods[0],
                                      adaptive_stepsize=adaptive_stepsize,
                                      apply=True)
-        
+
     # Run FOE and shift spectrum
     if foe_comp:
         foe, foePerMode, cond = pilot_based_foe(syms_out, ref_symbs)

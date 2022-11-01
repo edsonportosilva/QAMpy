@@ -54,7 +54,7 @@ def test_bps(dtype, method, benchmark):
 @pytest.mark.parametrize("method", ["cma", "mcma", "sbd",  "mddma", "dd" ])
 @pytest.mark.parametrize("backend", ["pyx", "pth"])
 def test_equalisation_prec(dtype, method, benchmark, backend):
-    benchmark.group = "equalisation " + method
+    benchmark.group = f"equalisation {method}"
     fb = 40.e9
     os = 2
     fs = os*fb
@@ -73,7 +73,7 @@ def test_equalisation_prec(dtype, method, benchmark, backend):
     S = impairments.change_snr(S, snr)
     SS = impairments.apply_PMD(S, theta, t_pmd)
     if backend=="pth":
-        method = method+"_pth"
+        method = f"{method}_pth"
     wxy, err = benchmark(equalisation.equalise_signal, SS, mu, Ntaps=ntaps, method=method, adaptive_stepsize=True, )
     #E = equalisation.apply_filter(SS,  wxy)
     #E = helpers.normalise_and_center(E)
@@ -131,17 +131,16 @@ def test_soft_l_values_benchmark(dtype, method, benchmark, type):
             benchmark(soft_l_value_demapper_pyt, s[0], int(np.log2(M)), snr, s._bitmap_mtx)
         else:
             benchmark(soft_l_value_demapper_minmax_pyt, s[0], int(np.log2(M)), snr, s._bitmap_mtx)
+    elif type == "log":
+        benchmark(soft_l_value_demapper_pyx, s[0], M, snr, s._bitmap_mtx)
     else:
-        if type == "log":
-            benchmark(soft_l_value_demapper_pyx, s[0], M, snr, s._bitmap_mtx)
-        else:
-            benchmark(soft_l_value_demapper_minmax_pyx, s[0], M, snr, s._bitmap_mtx)
+        benchmark(soft_l_value_demapper_minmax_pyx, s[0], M, snr, s._bitmap_mtx)
 
 
 @pytest.mark.parametrize("dtype", [np.complex64, np.complex128])
 @pytest.mark.parametrize("method", ["py", "pyx", "pth"])
 def test_apply_filter_benchmark(dtype, method, benchmark):
-    benchmark.group = "apply filter "+str(dtype)
+    benchmark.group = f"apply filter {str(dtype)}"
     fb = 40.e9
     os = 2
     fs = os*fb
@@ -169,19 +168,16 @@ def test_apply_filter_benchmark(dtype, method, benchmark):
 def test_select_angles_benchmark(dtype, method, benchmark, M):
     benchmark.group = "select_angle"
     from qampy.core.dsp_cython import bps
-    if method == "pyx":
-        from qampy.core.dsp_cython import select_angles
-    elif method == "pyt":
+    if method == "pyt":
         from qampy.core.pythran_dsp import select_angles
+    elif method == "pyx":
+        from qampy.core.dsp_cython import select_angles
     fb = 40.e9
     N = 2**17
     NL = 40
     sig = signals.SignalQAMGrayCoded(M, N, fb=fb, nmodes=1, dtype=dtype)
     sig = impairments.apply_phase_noise(sig, 40e3)
-    if dtype is np.dtype(np.complex64):
-        fdtype = np.float32
-    else:
-        fdtype = np.float64
+    fdtype = np.float32 if dtype is np.dtype(np.complex64) else np.float64
     angles = np.linspace(-np.pi/4, np.pi/4, M, endpoint=False, dtype=fdtype).reshape(1,-1)
     idx = bps(sig[0], angles, sig.coded_symbols, NL)
     ph = np.array(benchmark(select_angles,  angles, idx)).reshape(1, -1)

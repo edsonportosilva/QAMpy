@@ -137,10 +137,7 @@ class TestEqualiseSignalParameters(object):
         sig2 = np.roll(sig2, ntaps//2)
         sig3 = impairments.simulate_transmission(sig2, dgd=150e-12, theta=np.pi/3., snr=35)
         sig3 = helpers.normalise_and_center(sig3)
-        if ps_sym:
-            symbs = sig3.symbols
-        else:
-            symbs = None
+        symbs = sig3.symbols if ps_sym else None
         sigout, wxy, err = equalisation.equalise_signal(sig3, 1e-3, Ntaps=ntaps, adaptive_stepsize=True,
                                                 symbols=symbs, apply=True, method=method, TrSyms=20000, modes=modes)
         sigout = helpers.normalise_and_center(sigout)

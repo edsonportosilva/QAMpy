@@ -129,7 +129,7 @@ def bps(E, Mtestangles, symbols, N, method="pyt", **kwargs):
     if method.lower() == "pyx":
         bps_fct = _bps_idx_pyx
     elif method.lower() == "af":
-        if af == None:
+        if af is None:
             raise RuntimeError("Arrayfire was not imported so cannot use it")
         bps_fct = _bps_idx_af
     elif method.lower() == "py":
@@ -138,10 +138,7 @@ def bps(E, Mtestangles, symbols, N, method="pyt", **kwargs):
         bps_fct = _bps_idx_pyt
     else:
         raise ValueError("Method needs to be 'pyx', 'py' or 'af'")
-    if E.dtype is np.dtype(np.complex64):
-        dtype = np.float32
-    else:
-        dtype = np.float64
+    dtype = np.float32 if E.dtype is np.dtype(np.complex64) else np.float64
     angles = np.linspace(-np.pi/4, np.pi/4, Mtestangles, endpoint=False, dtype=dtype).reshape(1,-1)
     Ew = np.atleast_2d(E).astype(E.dtype)
     ph = []
@@ -186,7 +183,7 @@ def _bps_idx_af(E, angles, symbols, N):
         if R < N:
             R = R+Nmax
             K -= 1
-        Eaf = af.np_to_af_array(EE[0:Nmax+N].astype(prec_dtype))
+        Eaf = af.np_to_af_array(EE[:Nmax+N].astype(prec_dtype))
         tmp = af.min(af.abs(af.broadcast(lambda x,y: x-y, Eaf, syms))**2, dim=2)
         tt = np.array(tmp)
         cs = _movavg_af(tmp, 2*N, axis=0)
@@ -282,10 +279,7 @@ def bps_twostage(E, Mtestangles, symbols, N , B=4, method="pyt", **kwargs):
         ph_out.append(np.unwrap(phf*4, discont=np.pi*4/4)/4)
     ph_out = np.asarray(ph_out, dtype=E.real.dtype)
     En = Ew*np.exp(1.j*ph_out)
-    if E.ndim == 1:
-        return En.flatten(), ph_out.flatten()
-    else:
-        return En, ph_out
+    return (En.flatten(), ph_out.flatten()) if E.ndim == 1 else (En, ph_out)
 
 
 
@@ -467,7 +461,4 @@ def comp_freq_offset(sig, freq_offset, os=1 ):
     for l in range(npols):
         lin_phase = 2 * np.pi * time_vec * freq_offset[l] /  os
         comp_signal[l,:] = sig[l,:] * np.exp(-1j * lin_phase)
-    if ndim == 1:
-        return comp_signal.flatten()
-    else:
-        return comp_signal
+    return comp_signal.flatten() if ndim == 1 else comp_signal

@@ -18,11 +18,11 @@ def run_pilot_receiver(rec_signal, pilot_symbs, process_frame_id=0, sh=False, os
     shift_factor, corse_foe, mode_alignemnt = pilotbased_receiver.frame_sync(rec_signal, ref_symbs, os, frame_length=frame_length,
                                                              mu=mu[0], method=method[0], ntaps=Numtaps[0],
                                                              Niter=Niter[0], adap_step=adap_step[0])
-    
+
     # Redistribute pilots according to found modes
     pilot_symbs = pilot_symbs[mode_alignemnt,:]
     ref_symbs = ref_symbs[mode_alignemnt,:]
-    
+
     # Converge equalizer using the pilot sequence
     eq_pilots, foePerMode, taps, shift_factor = pilotbased_receiver.equalize_pilot_sequence(rec_signal, ref_symbs,
                                                                                             shift_factor, os, sh=sh,
@@ -84,8 +84,7 @@ def pre_filter(signal, bw, os,center_freq = 0):
     h = np.zeros(N, dtype=np.float64)
     # h[int(N/(bw/2)):-int(N/(bw/2))] = 1
     h[idx] = 1
-    s = np.fft.ifftshift(np.fft.ifft(np.fft.fft(signal) * h))
-    return s
+    return np.fft.ifftshift(np.fft.ifft(np.fft.fft(signal) * h))
 
 # Standard function to test DSP
 def sim_pilot_txrx(sig_snr, Ntaps=45, beta=0.1, M=64, freq_off = None,cpe_avg=8,

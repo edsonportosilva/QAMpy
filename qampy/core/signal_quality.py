@@ -67,7 +67,7 @@ def make_decision(signal, symbols, method="pyt", **kwargs):
     if method == "pyt":
         return _decision_pyt(signal, symbols, **kwargs)
     elif method == "af":
-        if af == None:
+        if af is None:
             raise RuntimeError("Arrayfire was not imported so cannot use this method for quantization")
         return _decision_af(signal, symbols, **kwargs)
     else:
@@ -184,13 +184,12 @@ def cal_evm(sig, M, known=None):
     """
     if known is None:
         return _cal_evm_blind(sig, M)
-    else:
-        Pi = norm_to_s0(known, M)
-        Ps = norm_to_s0(sig, M)
-        evm = np.mean(abs(Pi.real - Ps.real)**2 + \
-                  abs(Pi.imag - Ps.imag)**2)
-        evm /= np.mean(abs(Pi)**2)
-        return np.sqrt(evm)
+    Pi = norm_to_s0(known, M)
+    Ps = norm_to_s0(sig, M)
+    evm = np.mean(abs(Pi.real - Ps.real)**2 + \
+              abs(Pi.imag - Ps.imag)**2)
+    evm /= np.mean(abs(Pi)**2)
+    return np.sqrt(evm)
 
 
 def cal_snr_qam(E, M):
@@ -267,8 +266,7 @@ def cal_snr_blind_qpsk(E):
     #P = np.mean(abs(Eref**2))
     P = np.mean(cabssquared(Eref))
     var = np.var(Eref)
-    SNR = 10 * np.log10(P / var)
-    return SNR
+    return 10 * np.log10(P / var)
 
 
 def cal_ser_qam(data_rx, symbol_tx, M, method="pyx"):
@@ -331,6 +329,5 @@ def cal_mi(signal, symbols_tx, alphabet, N0, fast=True):
     mi = np.zeros(nmodes, dtype=np.float64)
     if fast:
         return cal_mi_mc_fast(signal, symbols_tx, alphabet, N0)
-    else:
-        noise = signal-symbols_tx
-        return cal_mi_mc(noise, alphabet, N0)
+    noise = signal-symbols_tx
+    return cal_mi_mc(noise, alphabet, N0)

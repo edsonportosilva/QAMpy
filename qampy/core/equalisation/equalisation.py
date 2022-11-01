@@ -113,25 +113,33 @@ def generate_symbols_for_eq(method, M, dtype):
         p = generate_partition_codes_complex(M)
         return  np.atleast_2d(p).astype(dtype)
     if method in ["sbd"]:
-        symbols = np.atleast_2d(cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))).astype(dtype)
-        return symbols
+        return np.atleast_2d(
+            cal_symbols_qam(M) / np.sqrt(cal_scaling_factor_qam(M))
+        ).astype(dtype)
+
     if method in ["mddma"]:
-        symbols = np.atleast_2d(cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))).astype(dtype)
-        return  symbols
+        return np.atleast_2d(
+            cal_symbols_qam(M) / np.sqrt(cal_scaling_factor_qam(M))
+        ).astype(dtype)
+
     if method in ["dd"]:
-        symbols = np.atleast_2d(cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))).astype(dtype)
-        return symbols
+        return np.atleast_2d(
+            cal_symbols_qam(M) / np.sqrt(cal_scaling_factor_qam(M))
+        ).astype(dtype)
+
     if method in ["sgncma_real"]:
         return np.repeat([np.atleast_1d(_cal_Rconstant_complex(M).real.astype(dtype))], 2, axis=0)
     if method in ["cma_real"]:
         return np.repeat([np.atleast_1d(_cal_Rconstant_complex(M).real.astype(dtype))], 2, axis=0)
     if method in ["dd_real"]:
         symbols = cal_symbols_qam(M)/np.sqrt(cal_scaling_factor_qam(M))
-        symbols_out = np.vstack([symbols.real, symbols.imag]).astype(dtype)
-        return symbols_out
+        return np.vstack([symbols.real, symbols.imag]).astype(dtype)
     if method in ["dd_data_real", "sbd_data"]:
-        raise ValueError("%s is a data-aided method and needs the symbols to be passed"%method)
-    raise ValueError("%s is unknown method"%method)
+        raise ValueError(
+            f"{method} is a data-aided method and needs the symbols to be passed"
+        )
+
+    raise ValueError(f"{method} is unknown method")
 
 def apply_filter(E, os, wxy, method="pyt", modes=None):
     """
@@ -524,10 +532,7 @@ def equalise_signal(E, os, mu, M, wxy=None, Ntaps=None, TrSyms=None, Niter=1, me
     """
     method = method.lower()
     dtype_c = E.dtype
-    if method in REAL_VALUED:
-        E = _convert_sig_to_real(E)
-    else:
-        E = np.copy(E) #  copy to make pythran happy
+    E = _convert_sig_to_real(E) if method in REAL_VALUED else np.copy(E)
     mu = E.real.dtype.type(mu)
     nmodes = E.shape[0]
     if modes is None:
@@ -553,15 +558,11 @@ def equalise_signal(E, os, mu, M, wxy=None, Ntaps=None, TrSyms=None, Niter=1, me
         err, wxy, mu = pythran_equalisation.train_equaliser_realvalued(E, TrSyms, Niter, os, mu, wxy, modes, adaptive_stepsize, symbols.copy(), method[:-5]) # copies are needed because pythran has problems with reshaped arrays
     else:
         err, wxy, mu = pythran_equalisation.train_equaliser(E, TrSyms, Niter, os, mu, wxy, modes, adaptive_stepsize, symbols.copy(), method) # copies are needed because pythran has problems with reshaped arrays
-    if apply:
-        # TODO: The below is suboptimal because we should really only apply to the selected modes for efficiency
-        Eest = apply_filter(E, os, wxy, modes=modes)
-        if method in REAL_VALUED:
-            return Eest, wxy, err
-        else:
-            return Eest, wxy, err
-    else:
+    if not apply:
         return wxy, err
+    # TODO: The below is suboptimal because we should really only apply to the selected modes for efficiency
+    Eest = apply_filter(E, os, wxy, modes=modes)
+    return Eest, wxy, err
     
 def _reshape_symbols(symbols, method, M, dtype, nmodes):
     if symbols is None or method in NONDECISION_BASED: # This code currently prevents passing "symbol arrays for RDE or CMA algorithms
@@ -570,7 +571,10 @@ def _reshape_symbols(symbols, method, M, dtype, nmodes):
         if symbols.ndim == 1 or symbols.shape[0] == 1:
             symbols = np.tile(symbols, (nmodes, 1))
         elif symbols.shape[0] != nmodes:
-            raise ValueError("Symbols array is shape {} but signal has {} modes, symbols must be 1d or of shape (1, N) or ({}, N)".format(symbols.shape, nmodes, nmodes))
+            raise ValueError(
+                f"Symbols array is shape {symbols.shape} but signal has {nmodes} modes, symbols must be 1d or of shape (1, N) or ({nmodes}, N)"
+            )
+
         symbols = symbols.astype(dtype)
         symbols = np.atleast_2d(symbols)
     else:
@@ -581,13 +585,18 @@ def _reshape_symbols(symbols, method, M, dtype, nmodes):
             elif symbols.shape[0] == nmodes//2:
                 symbols = np.vstack([symbols.real, symbols.imag])
             else:
-                raise ValueError("Symbols array is  complex and has {} modes, but needs to either have one mode or the same modes as the signal ({})".format(symbols.shape[0], nmodes//2))
-        else:
-            if symbols.shape[0] == 2 and nmodes > 2:
-                symbols = np.repeat([symbols[0], symbols[1]], nmodes//2, axis=0).squeeze()
-                symbols = symbols.reshape(nmodes, -1)
-            elif symbols.shape[0] != nmodes:
-                raise ValueError("Symbols array is shape {} but signal has {} modes, symbols must be 1d or of shape (1, N) or ({}, N)".format(symbols.shape, nmodes, nmodes))
+                raise ValueError(
+                    f"Symbols array is  complex and has {symbols.shape[0]} modes, but needs to either have one mode or the same modes as the signal ({nmodes // 2})"
+                )
+
+        elif symbols.shape[0] == 2 and nmodes > 2:
+            symbols = np.repeat([symbols[0], symbols[1]], nmodes//2, axis=0).squeeze()
+            symbols = symbols.reshape(nmodes, -1)
+        elif symbols.shape[0] != nmodes:
+            raise ValueError(
+                f"Symbols array is shape {symbols.shape} but signal has {nmodes} modes, symbols must be 1d or of shape (1, N) or ({nmodes}, N)"
+            )
+
         symbols = symbols.astype(dtype)
     return symbols
 
@@ -654,7 +663,7 @@ def CDcomp(E, fs, N, L, D, wl):
         sigB = np.zeros(N, dtype=np.complex128)
         sigEQ = np.zeros(n * (B + 1), dtype=np.complex128)
         sB = np.zeros((B, N), dtype=np.complex128)
-        for i in range(0, B):
+        for i in range(B):
             sigB = np.zeros(N, dtype=np.complex128)
             sigB[zp:-zp] = E[i * n:i * n + n]
             sigB = np.fft.fft(sigB)

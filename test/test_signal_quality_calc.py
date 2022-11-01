@@ -13,11 +13,10 @@ def _flip_symbols(sig, idx, d, mode=0):
                 sig[mode,i] -= d
             else:
                 sig[mode,i] += d
+        elif sig[mode,i].imag > 0:
+            sig[mode,i] -= 1.j * d
         else:
-            if sig[mode,i].imag > 0:
-                sig[mode,i] -= 1.j * d
-            else:
-                sig[mode,i] += 1.j * d
+            sig[mode,i] += 1.j * d
     return sig
 
 

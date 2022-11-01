@@ -46,8 +46,12 @@ def _apply_to_pilotsignal(sig, wxy, frames):
         shiftfctrs = shiftfctrs - (Ntaps - sig.synctaps)//2
     if np.min(shiftfctrs) < 0:
         shiftfctrs += sig.os*sig.frame_len
-    assert shiftfctrs.max() + sig.os*sig.frame_len*(max(frames)+1) < sig.shape[-1] - (Ntaps - 1), \
-        "Trying to equalise frame {}, but signal is not long enough".format(max(frames))
+    assert shiftfctrs.max() + sig.os * sig.frame_len * (
+        max(frames) + 1
+    ) < sig.shape[-1] - (
+        Ntaps - 1
+    ), f"Trying to equalise frame {max(frames)}, but signal is not long enough"
+
     if np.all(np.diff(frames) == 1):
         nframes = frames[-1] - frames[0] + 1
         if np.unique(shiftfctrs).shape[0] > 1:
@@ -65,9 +69,9 @@ def _apply_to_pilotsignal(sig, wxy, frames):
             return sig.recreate_from_np_array(core.equalisation.apply_filter(
                                     sig[:,idx_0:idx_end], sig.os, wxy), fs=sig.fb)
     else:
+        all_mode_sig = []
         if np.unique(shiftfctrs).shape[0] > 1:
             modes = np.arange(wxy.shape[0]).reshape(-1, sig.shape[0]).T #needed for real valued eqn
-            all_mode_sig = []
             for frame in frames:
                 eq_mode_sig = []
                 for mode in modes:
@@ -76,15 +80,14 @@ def _apply_to_pilotsignal(sig, wxy, frames):
                     eq_mode_sig.append(core.equalisation.apply_filter(
                         sig[:, idx_0:idx_end], sig.os, wxy, modes=mode))
                 all_mode_sig.append(np.squeeze(np.array(eq_mode_sig)))
-            return sig.recreate_from_np_array(np.hstack(all_mode_sig), fs=sig.fb)
         else:
-            all_mode_sig = []
             for frame in frames:
                 idx_0 = shiftfctrs[0] + frame*sig.os*sig.frame_len
                 idx_end = idx_0 + sig.frame_len*sig.os + Ntaps -1 
                 all_mode_sig.append(core.equalisation.apply_filter(
                     sig[:,idx_0:idx_end], sig.os, wxy))
-            return sig.recreate_from_np_array(np.hstack(all_mode_sig), fs=sig.fb)
+
+        return sig.recreate_from_np_array(np.hstack(all_mode_sig), fs=sig.fb)
    
 def apply_filter(sig, wxy, method="pyt", frames=[0]):
     """
@@ -112,11 +115,10 @@ def apply_filter(sig, wxy, method="pyt", frames=[0]):
     sig_out   : SignalObject
         equalised signal
     """
-    if hasattr(sig, "pilots") and frames: # pilot equaliser needs to be applied to the frame
+    if hasattr(sig, "pilots") and frames:
         return _apply_to_pilotsignal(sig, wxy, frames)
-    else:
-        sig_out = core.equalisation.apply_filter(sig, sig.os, wxy, method=method)
-        return sig.recreate_from_np_array(sig_out, fs=sig.fb)
+    sig_out = core.equalisation.apply_filter(sig, sig.os, wxy, method=method)
+    return sig.recreate_from_np_array(sig_out, fs=sig.fb)
     
 
 def equalise_signal(sig, mu, wxy=None, Ntaps=None, TrSyms=None, Niter=1, method="mcma", adaptive_stepsize=False,
@@ -181,15 +183,14 @@ def equalise_signal(sig, mu, wxy=None, Ntaps=None, TrSyms=None, Niter=1, method=
                 symbols = sig.coded_symbols
             except AttributeError:
                 symbols = None
-    if apply:
-        sig_out, wxy, err = core.equalisation.equalise_signal(sig, sig.os, mu, sig.M, wxy=wxy, Ntaps=Ntaps, TrSyms=TrSyms, Niter=Niter, method=method,
-                                                 adaptive_stepsize=adaptive_stepsize,  symbols=symbols,
-                                                 apply=True, modes=modes, **kwargs)
-        return sig.recreate_from_np_array(sig_out, fs=sig.fb), wxy, err
-    else:
+    if not apply:
         return core.equalisation.equalise_signal(sig, sig.os, mu, sig.M, wxy=wxy, Ntaps=Ntaps, TrSyms=TrSyms, Niter=Niter, method=method,
                                 adaptive_stepsize=adaptive_stepsize,  symbols=symbols, modes=modes,
                                              apply=False, **kwargs)
+    sig_out, wxy, err = core.equalisation.equalise_signal(sig, sig.os, mu, sig.M, wxy=wxy, Ntaps=Ntaps, TrSyms=TrSyms, Niter=Niter, method=method,
+                                             adaptive_stepsize=adaptive_stepsize,  symbols=symbols,
+                                             apply=True, modes=modes, **kwargs)
+    return sig.recreate_from_np_array(sig_out, fs=sig.fb), wxy, err
 
 def dual_mode_equalisation(sig, mu, Ntaps, TrSyms=(None, None), Niter=(1, 1), methods=("mcma", "sbd"),
                            adaptive_stepsize=(False, False), symbols=None, modes=None, apply=True, **kwargs):
@@ -252,16 +253,15 @@ def dual_mode_equalisation(sig, mu, Ntaps, TrSyms=(None, None), Niter=(1, 1), me
                     symbols = sig.coded_symbols
                 except AttributeError:
                     symbols = None
-    if apply:
-        sig_out, wx, err = core.equalisation.dual_mode_equalisation(sig, sig.os, mu, sig.M, Ntaps=Ntaps, TrSyms=TrSyms, methods=methods,
-                                                       adaptive_stepsize=adaptive_stepsize, symbols=symbols, Niter=Niter,
-                                                                    modes=modes, apply=True,**kwargs)
-        return sig.recreate_from_np_array(sig_out, fs=sig.fb), wx, err
-    else:
+    if not apply:
         return core.equalisation.dual_mode_equalisation(sig, sig.os, mu, sig.M, Ntaps=Ntaps, TrSyms=TrSyms, methods=methods,
                                                         Niter=Niter, 
                                                        adaptive_stepsize=adaptive_stepsize, symbols=symbols,
                                                                 modes=modes, apply=False,**kwargs)
+    sig_out, wx, err = core.equalisation.dual_mode_equalisation(sig, sig.os, mu, sig.M, Ntaps=Ntaps, TrSyms=TrSyms, methods=methods,
+                                                   adaptive_stepsize=adaptive_stepsize, symbols=symbols, Niter=Niter,
+                                                                modes=modes, apply=True,**kwargs)
+    return sig.recreate_from_np_array(sig_out, fs=sig.fb), wx, err
 
 
 
@@ -318,24 +318,20 @@ def pilot_equaliser(signal, mu, Ntaps, apply=True, foe_comp=True, wxinit=None, f
     elif Ntaps != signal.synctaps:
         eq_shiftfctrs = eq_shiftfctrs - (Ntaps - signal.synctaps)//2 + signal.os*signal.frame_len*frame
     assert signal.shape[-1] - eq_shiftfctrs.max() > signal.frame_len*signal.os, "You are trying to equalise an incomplete frame which does not work"
-    
+
     taps_all, foe_all = pilotbased_receiver.equalize_pilot_sequence(signal, signal.pilot_seq, eq_shiftfctrs, os=signal.os, mu=mu,
                                                                     foe_comp=foe_comp, Ntaps = Ntaps, wxinit=wxinit, **eqkwargs)
-    if foe_comp:
-        out_sig = phaserec.comp_freq_offset(signal, foe_all)
-    else:
-        out_sig = signal
+    out_sig = phaserec.comp_freq_offset(signal, foe_all) if foe_comp else signal
     if apply:
         eq_mode_sig = apply_filter(out_sig, taps_all, frames=[frame])
         if verbose:
             return taps_all, eq_mode_sig, foe_all, (Ntaps, signal.synctaps)
         else:
             return taps_all, eq_mode_sig
+    elif verbose:
+        taps_all, foe_all, (Ntaps, signal.synctaps)
     else:
-        if verbose:
-            taps_all, foe_all, (Ntaps, signal.synctaps)
-        else:
-            return taps_all
+        return taps_all
         
 def pilot_equaliser_nframes(signal, mu, Ntaps, apply=True, foe_comp=True, frames=[0], wxinit=None, verbose=True, **eqkwargs):
     """
@@ -388,10 +384,9 @@ def pilot_equaliser_nframes(signal, mu, Ntaps, apply=True, foe_comp=True, frames
             wxinit = ret[0]
         rets.append(ret)
     out = tuple(zip(*rets)) # return lists for taps, signals, foe ...
-    if apply:
-        # if we applied the arrays we want to return a single signal object
-        sout = np.array(np.hstack(out[1])) # need to convert to array first to avoid an infinite recursion
-        sout = signal.recreate_from_np_array(sout, fs=signal.fb)
-        return out[0], sout, out[2:]
-    else:
+    if not apply:
         return out
+    # if we applied the arrays we want to return a single signal object
+    sout = np.array(np.hstack(out[1])) # need to convert to array first to avoid an infinite recursion
+    sout = signal.recreate_from_np_array(sout, fs=signal.fb)
+    return out[0], sout, out[2:]

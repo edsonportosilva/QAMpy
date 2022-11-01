@@ -29,7 +29,7 @@ E_s, wxy_s, (err_s, err_rde_s) = equalisation.dual_mode_equalisation(SS, (muCMA,
                                                                      adaptive_stepsize=(True, True))
 #E_s, wxy_s, err_s = equalisation.equalise_signal(SS, muCMA, Ntaps=ntaps, TrSyms=Ncma, method="cma", adaptive_stepsize=True, apply=True)
 t2 = timer()
-print("eqn time: {}".format(t2-t1))
+print(f"eqn time: {t2 - t1}")
 
 
 E_s = helpers.normalise_and_center(E_s)

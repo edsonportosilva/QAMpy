@@ -27,8 +27,7 @@ import numpy as np
 
 def factorial(n):
     """The factorial of n, i.e. n!"""
-    if n == 0: return 1
-    return n * factorial(n - 1)
+    return 1 if n == 0 else n * factorial(n - 1)
 
 
 def linspacestep(start, step, N):
@@ -119,10 +118,7 @@ def bool2bin(x):
     """
     assert len(x) < 64, "array must not be longer than 63"
     x = np.asarray(x, dtype=bool)
-    y = 0
-    for i, j in enumerate(x):
-        y += j << i
-    return y
+    return sum(j << i for i, j in enumerate(x))
 
 
 def find_offset(sequence, data):
@@ -144,10 +140,9 @@ def find_offset(sequence, data):
         index where sequence first occurs in data
     """
     assert len(data) > len(sequence), "data has to be longer than sequence"
-    if not data.dtype == sequence.dtype:
+    if data.dtype != sequence.dtype:
         raise Warning("""data and sequence are not the same dtype, converting
         data to dtype of sequence""")
-        data = data.astype(sequence.dtype)
     # using this string conversion method is much faster than array methods,
     # however it only finds the first occurence
     return data.tostring().index(sequence.tostring()) // data.itemsize
@@ -217,10 +212,7 @@ def convert_iqtosinglebitstream(idat, qdat, nbits):
     output   : array_like
         interleaved bit stream
     """
-    if nbits%2:
-        N = [nbits//2+1, nbits//2]
-    else:
-        N = [nbits//2, nbits//2]
+    N = [nbits//2+1, nbits//2] if nbits%2 else [nbits//2, nbits//2]
     idat_n = idat[:len(idat)-(len(idat)%N[0])]
     idat_n = idat_n.reshape(N[0], len(idat_n)/N[0])
     qdat_n = qdat[:len(qdat)-(len(qdat)%N[1])]
